@@ -1,0 +1,260 @@
+package edk2
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"log"
+	"os"
+)
+
+const (
+	// Firmware volume signature
+	FVH_SIGNATURE = 0x4856465f // "_FVH"
+
+	// Variable header magic
+	VAR_HEADER_MAGIC = 0x55aa
+
+	// Variable state - valid
+	VAR_STATE_VALID = 0x3f
+
+	// Variable store format
+	VARSTORE_FORMAT = 0x5a
+
+	// Variable store state
+	VARSTORE_STATE = 0xfe
+)
+
+// Edk2VarStore represents an EDK2 variable store
+type Edk2VarStore struct {
+	filename string
+	filedata []byte
+	start    int
+	end      int
+}
+
+// NewEdk2VarStore creates a new variable store parser from a file
+func NewEdk2VarStore(filename string) (*Edk2VarStore, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	return NewEdk2VarStoreFromBytes(data, filename)
+}
+
+// NewEdk2VarStoreFromBytes creates a new variable store parser from a byte slice
+func NewEdk2VarStoreFromBytes(data []byte, filename string) (*Edk2VarStore, error) {
+	store := &Edk2VarStore{
+		filename: filename,
+		filedata: data,
+	}
+
+	if err := store.parseVolume(); err != nil {
+		return nil, err
+	}
+
+	return store, nil
+}
+
+// FindNvData searches for the NvData GUID in the data
+func FindNvData(data []byte) int {
+	offset := 0
+	for offset+64 < len(data) {
+		guid, err := ParseGUIDBin(data, offset+16)
+		if err == nil && guid == GUIDNvData {
+			return offset
+		}
+		if err == nil && guid == GUIDFfs {
+			if offset+40 <= len(data) {
+				tlen := binary.LittleEndian.Uint32(data[offset+32 : offset+36])
+				offset += int(tlen)
+				continue
+			}
+		}
+		offset += 1024
+	}
+	return -1
+}
+
+// Probe checks if the file is a valid EDK2 variable store
+func Probe(filename string) (bool, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return false, err
+	}
+
+	offset := FindNvData(data)
+	return offset != -1, nil
+}
+
+// FirmwareVolumeHeader represents the firmware volume header structure
+type FirmwareVolumeHeader struct {
+	Vlen    uint64
+	Sig     uint32
+	Attr    uint32
+	Hlen    uint16
+	Csum    uint16
+	Xoff    uint16
+	_       uint8 // padding
+	Rev     uint8
+	Blocks  uint32
+	Blksize uint32
+}
+
+// VarStoreHeader represents the variable store header structure
+type VarStoreHeader struct {
+	Size     uint32
+	Format   uint8
+	State    uint8
+	Reserved [6]byte
+}
+
+// VariableHeader represents a single variable entry header
+type VariableHeader struct {
+	Magic    uint16
+	State    uint8
+	Reserved uint8
+	Attr     uint32
+	Count    uint64
+	// Timestamp is 16 bytes at offset 16 (parsed separately)
+	// PkIdx, NameSize, DataSize are at offset 32 (parsed separately)
+}
+
+func (s *Edk2VarStore) parseVolume() error {
+	offset := FindNvData(s.filedata)
+	if offset == -1 {
+		return fmt.Errorf("%s: varstore not found", s.filename)
+	}
+
+	guid, err := ParseGUIDBin(s.filedata, offset+16)
+	if err != nil {
+		return fmt.Errorf("failed to parse GUID: %w", err)
+	}
+	fmt.Println("Parsed GUID:", guid.String())
+
+	if offset+48 > len(s.filedata) {
+		return fmt.Errorf("insufficient data for volume header")
+	}
+
+	var header FirmwareVolumeHeader
+	err = binary.Read(bytes.NewReader(s.filedata[offset+32:]), binary.LittleEndian, &header)
+	if err != nil {
+		return fmt.Errorf("failed to parse firmware volume header: %w", err)
+	}
+
+	log.Printf("vol=%s vlen=0x%x rev=%d blocks=%d*%d (0x%x)",
+		GUIDName(guid), header.Vlen, header.Rev, header.Blocks, header.Blksize, header.Blocks*header.Blksize)
+
+	if header.Sig != FVH_SIGNATURE {
+		return fmt.Errorf("%s: not a firmware volume (signature mismatch)", s.filename)
+	}
+
+	if guid != GUIDNvData {
+		return fmt.Errorf("%s: not a variable store (GUID mismatch)", s.filename)
+	}
+
+	return s.parseVarStore(offset + int(header.Hlen))
+}
+
+// parseVarStore parses the variable store header
+func (s *Edk2VarStore) parseVarStore(start int) error {
+	if start+28 > len(s.filedata) {
+		return fmt.Errorf("insufficient data for varstore header")
+	}
+
+	guid, err := ParseGUIDBin(s.filedata, start)
+	if err != nil {
+		return fmt.Errorf("failed to parse varstore GUID: %w", err)
+	}
+
+	var header VarStoreHeader
+	err = binary.Read(bytes.NewReader(s.filedata[start+16:]), binary.LittleEndian, &header)
+	if err != nil {
+		return fmt.Errorf("failed to parse varstore header: %w", err)
+	}
+
+	log.Printf("varstore=%s size=0x%x format=0x%x state=0x%x",
+		GUIDName(guid), header.Size, header.Format, header.State)
+
+	if guid != GUIDAuthVars {
+		return fmt.Errorf("%s: unknown varstore guid", s.filename)
+	}
+
+	if header.Format != VARSTORE_FORMAT {
+		return fmt.Errorf("%s: unknown varstore format", s.filename)
+	}
+
+	if header.State != VARSTORE_STATE {
+		return fmt.Errorf("%s: unknown varstore state", s.filename)
+	}
+
+	s.start = start + 16 + 12
+	s.end = start + int(header.Size)
+	log.Printf("var store range: 0x%x -> 0x%x", s.start, s.end)
+
+	return nil
+}
+
+// GetVarList retrieves all variables from the store
+func (s *Edk2VarStore) GetVarList() (EfiVarList, error) {
+	pos := s.start
+	varlist := make(EfiVarList)
+
+	for pos < s.end {
+		// Check if we have enough data for the header
+		if pos+44 > len(s.filedata) {
+			break
+		}
+
+		// Read variable header using struct
+		var varHeader VariableHeader
+		err := binary.Read(bytes.NewReader(s.filedata[pos:]), binary.LittleEndian, &varHeader)
+		if err != nil {
+			break
+		}
+
+		if varHeader.Magic != VAR_HEADER_MAGIC {
+			break
+		}
+
+		// Read additional fields at offset 32 (after 16-byte timestamp)
+		pk := binary.LittleEndian.Uint32(s.filedata[pos+32 : pos+36])
+		nsize := binary.LittleEndian.Uint32(s.filedata[pos+36 : pos+40])
+		dsize := binary.LittleEndian.Uint32(s.filedata[pos+40 : pos+44])
+
+		// Check if we have enough data for GUID, name and data
+		dataEnd := pos + 44 + 16 + int(nsize) + int(dsize)
+		if dataEnd > len(s.filedata) {
+			break
+		}
+
+		if varHeader.State == VAR_STATE_VALID {
+			// Parse GUID
+			guid, err := ParseGUIDBin(s.filedata, pos+44)
+			if err != nil {
+				log.Printf("Failed to parse GUID at position 0x%x: %v", pos, err)
+				break
+			}
+
+			// Parse variable name (UCS-16)
+			name := ParseUTF16(s.filedata, pos+44+16)
+
+			// Extract variable data
+			dataStart := pos + 44 + 16 + int(nsize)
+			data := make([]byte, dsize)
+			copy(data, s.filedata[dataStart:dataStart+int(dsize)])
+
+			// Create EfiVar
+			evar := NewEfiVar(name, guid, varHeader.Attr, data, varHeader.Count, pk)
+			evar.ParseTime(s.filedata, pos+16)
+
+			varlist[name.String()] = evar
+		}
+
+		// Move to next variable (aligned to 4 bytes)
+		pos = pos + 44 + 16 + int(nsize) + int(dsize)
+		pos = (pos + 3) & ^3 // align to 4 bytes
+	}
+
+	return varlist, nil
+}
