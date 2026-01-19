@@ -28,7 +28,10 @@ func ParseFirmware(filename string) (*TDVFMeasurements, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	mrtdHash := mrtd.BuildMRTD(data, false)
+	mrtdHash, err := mrtd.BuildMRTD(data, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build MRTD: %w", err)
+	}
 
 	sbVars, err := ParseSecureBootVariables(data, filename)
 	if err != nil {

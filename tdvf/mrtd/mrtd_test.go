@@ -22,11 +22,17 @@ func TestBuildMRTD(t *testing.T) {
 		return
 	}
 
-	hash := BuildMRTD(data, false)
+	hash, err := BuildMRTD(data, false)
+	if err != nil {
+		t.Fatalf("BuildMRTD failed: %v", err)
+	}
 	fmt.Printf("MRTD Hash: %x\n", hash)
 	assert.Equal(t, testdataHashDefault, hex.EncodeToString(hash), "MRTD hashes do not match")
 
-	hash = BuildMRTD(data, true)
+	hash, err = BuildMRTD(data, true)
+	if err != nil {
+		t.Fatalf("BuildMRTD failed: %v", err)
+	}
 	fmt.Printf("MRTD Hash Qemu compatible: %x\n", hash)
 	assert.Equal(t, testdataHashQemu, hex.EncodeToString(hash), "MRTD hashes do not match")
 }

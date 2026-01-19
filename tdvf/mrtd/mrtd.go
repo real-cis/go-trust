@@ -37,19 +37,6 @@ var (
 	OVMFTableTDXMetadataGUID = guid.MustParse("e47a6535-984a-4798-865e-4685a7bf8ec2")
 )
 
-// TDX Metadata section type names
-var TDXMetadataSectionTypeStrs = [TDXMetadataSectionTypeMax]string{
-	"BFV",
-	"CFV",
-	"TdHob",
-	"TempMem",
-	"PermMem",
-	"Payload",
-	"PayloadParam",
-	"TdInfo",
-	"TdParams",
-}
-
 // TdxMetadataDescriptor represents the TDX metadata descriptor
 type TdxMetadataDescriptor struct {
 	Signature            uint32
@@ -84,14 +71,6 @@ type TdxMetadataSection struct {
 	Type           uint32
 	Attributes     uint32
 }
-
-// GetTypeName returns the name of a section type
-// func GetTypeName(sectionType uint32) (string, bool) {
-// 	if sectionType >= TDXMetadataSectionTypeMax {
-// 		return "", false
-// 	}
-// 	return TDXMetadataSectionTypeStrs[sectionType], true
-// }
 
 // findMetadataOffset locates the TDX metadata offset in the image file
 func findMetadataOffset(data []byte) uint32 {
@@ -143,7 +122,7 @@ func findMetadataOffsetFromOvmfTable(data []byte) uint32 {
 
 // findMetadataOffsetFromTdvfDescriptor finds metadata offset using TDVF descriptor
 func findMetadataOffsetFromTdvfDescriptor(data []byte) uint32 {
-	imageSize := uint64(len(data))
+	imageSize := len(data)
 	offset := imageSize - TDVFDescriptorOffset
 
 	val := binary.LittleEndian.Uint32(data[offset : offset+4])
@@ -151,13 +130,13 @@ func findMetadataOffsetFromTdvfDescriptor(data []byte) uint32 {
 }
 
 // readMetadataDescriptor reads the metadata descriptor from the file at the given offset
-func readMetadataDescriptor(data []byte, metadataOff uint32) (TdxMetadataDescriptor, error) {
-	if uint64(metadataOff) >= uint64(len(data)) {
+func readMetadataDescriptor(data []byte, metadataOffset uint32) (TdxMetadataDescriptor, error) {
+	if metadataOffset >= uint32(len(data)) {
 		return TdxMetadataDescriptor{}, fmt.Errorf("offset out of bounds")
 	}
 
-	descOffset := metadataOff + TdxMetadataGuidSize
-	// metadataOff points to GUID + Descriptor.
+	descOffset := metadataOffset + TdxMetadataGuidSize
+	// metadataOffset points to GUID + Descriptor.
 	// We want to skip GUID.
 
 	if uint64(descOffset)+uint64(TdxMetadataDescriptorSize) > uint64(len(data)) {
@@ -177,11 +156,12 @@ func readMetadataDescriptor(data []byte, metadataOff uint32) (TdxMetadataDescrip
 }
 
 // processSections processes the metadata sections and builds the MRTD hash
-func processSections(data []byte, metadataOffset uint32, descriptor TdxMetadataDescriptor, qemuCompat bool) []byte {
+func processSections(data []byte, metadataOffset uint32,
+	descriptor TdxMetadataDescriptor, qemuCompat bool) ([]byte, error) {
 	// Metadata buffer starts after GUID
 	start := metadataOffset + TdxMetadataGuidSize
 	if uint64(start)+uint64(descriptor.Length) > uint64(len(data)) {
-		panic("metadata buffer out of bounds")
+		return nil, fmt.Errorf("metadata buffer out of bounds")
 	}
 
 	metadataBuf := data[start : start+descriptor.Length]
@@ -191,14 +171,16 @@ func processSections(data []byte, metadataOffset uint32, descriptor TdxMetadataD
 	hasher := sha512.New384()                   // SHA-384 hasher
 
 	// Process each section
-	for i := 0; i < int(descriptor.NumberOfSectionEntry); i++ {
+	for i := range descriptor.NumberOfSectionEntry {
 		secOffset := TdxMetadataDescriptorSize + i*TdxMetadataSectionSize
 
 		var sec TdxMetadataSection
 		secReader := bytes.NewReader(metadataBuf[secOffset:])
 		binary.Read(secReader, binary.LittleEndian, &sec)
 
-		validateSection(&sec)
+		if err := validateSection(&sec); err != nil {
+			return nil, err
+		}
 		if qemuCompat {
 			processSectionQemu(data, &sec, &buffer128, &buffer256, hasher)
 		} else {
@@ -207,39 +189,44 @@ func processSections(data []byte, metadataOffset uint32, descriptor TdxMetadataD
 	}
 
 	// Get final hash
-	return hasher.Sum(nil)
+	return hasher.Sum(nil), nil
 }
 
 // validateSection validates a metadata section
-func validateSection(sec *TdxMetadataSection) {
+func validateSection(sec *TdxMetadataSection) error {
 	// Sanity checks
 	if sec.MemoryAddress%PageSize != 0 {
-		panic("Memory address must be 4K aligned!")
+		return fmt.Errorf("memory address must be 4K aligned")
 	}
 
 	if (sec.Type != TDXMetadataSectionTypeTDInfo) &&
 		(sec.MemoryAddress != 0 || sec.MemoryDataSize != 0) &&
 		sec.MemoryDataSize < uint64(sec.RawDataSize) {
-		panic("Memory data size must exceed or equal the raw data size!")
+		return fmt.Errorf("memory data size must exceed or equal the raw data size")
 	}
 
 	if sec.MemoryDataSize%PageSize != 0 {
-		panic("Memory data size must be 4K aligned!")
+		return fmt.Errorf("memory data size must be 4K aligned")
 	}
 
 	if sec.Type >= TDXMetadataSectionTypeMax {
-		panic("Invalid type value!")
+		return fmt.Errorf("invalid type value: %d", sec.Type)
 	}
+
+	return nil
 }
 
 // processSection processes a single metadata section
 // Default spec is to MEM_PAGE_ADD followed by MR.EXTEND per page (4K)
-func processSection(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDExtensionBufferSize]byte,
+func processSection(data []byte, sec *TdxMetadataSection,
+	buffer128 *[MRTDExtensionBufferSize]byte,
 	buffer256 *[TDHMRExtendGranularity]byte, hasher io.Writer) {
+	fmt.Printf("Processing section type: %d \n", sec.Type)
+
 	nrPages := sec.MemoryDataSize / PageSize
 
 	// Process memory pages
-	for iter := uint64(0); iter < nrPages; iter++ {
+	for iter := range nrPages {
 		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
 			// Use TDCALL [TDH.MEM.PAGE.ADD]
 			fillBufferWithMemPageAdd(buffer128, sec.MemoryAddress+iter*PageSize)
@@ -251,7 +238,7 @@ func processSection(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDExtens
 			// Use TDCALL [TDH.MR.EXTEND]
 			granularity := uint64(TDHMRExtendGranularity)
 			iteration := PageSize / granularity
-			for chunkIter := uint64(0); chunkIter < iteration; chunkIter++ {
+			for chunkIter := range iteration {
 				fillBufferWithMrExtend(
 					buffer128,
 					buffer256,
@@ -273,7 +260,7 @@ func processSectionQemu(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDEx
 	nrPages := sec.MemoryDataSize / PageSize
 
 	// Process memory pages
-	for iter := uint64(0); iter < nrPages; iter++ {
+	for iter := range nrPages {
 		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
 			// Use TDCALL [TDH.MEM.PAGE.ADD]
 			fillBufferWithMemPageAdd(buffer128, sec.MemoryAddress+iter*PageSize)
@@ -286,7 +273,7 @@ func processSectionQemu(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDEx
 		// Use TDCALL [TDH.MR.EXTEND]
 		granularity := uint64(TDHMRExtendGranularity)
 		iteration := uint64(sec.RawDataSize) / granularity
-		for chunkIter := uint64(0); chunkIter < iteration; chunkIter++ {
+		for chunkIter := range iteration {
 			fillBufferWithMrExtend(
 				buffer128,
 				buffer256,
@@ -301,14 +288,13 @@ func processSectionQemu(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDEx
 }
 
 // BuildMRTD builds the MRTD from a raw TDVF image file
-func BuildMRTD(data []byte, qemuCompat bool) []byte {
-	metadataOff := findMetadataOffset(data)
+func BuildMRTD(data []byte, qemuCompat bool) ([]byte, error) {
+	metadataOffset := findMetadataOffset(data)
 
-	descriptor, err := readMetadataDescriptor(data, metadataOff)
+	descriptor, err := readMetadataDescriptor(data, metadataOffset)
 	if err != nil {
-		fmt.Printf("%+v\n", descriptor)
-		panic("The descriptor is not valid!")
+		return nil, fmt.Errorf("invalid descriptor: %w", err)
 	}
 
-	return processSections(data, metadataOff, descriptor, qemuCompat)
+	return processSections(data, metadataOffset, descriptor, qemuCompat)
 }
