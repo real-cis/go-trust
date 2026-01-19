@@ -30,7 +30,7 @@ func (b *MRTDBuffers) Reset() {
 
 // MemPageAdd fills Buf128 with memory page add data.
 func (b *MRTDBuffers) MemPageAdd(gpa uint64) {
-	clear(b.Buf128[:])
+	b.Reset()
 
 	// Byte 0 through 11 contain the ASCII string 'MEM.PAGE.ADD'.
 	// Byte 16 through 23 contain the GPA (in little-endian format).
@@ -40,9 +40,8 @@ func (b *MRTDBuffers) MemPageAdd(gpa uint64) {
 }
 
 // MrExtend fills Buf128 and Buf256 for MR_EXTEND operation.
-func (b *MRTDBuffers) MrExtend(gpa uint64, data []byte, dataOffset uint64) {
-	clear(b.Buf128[:])
-	clear(b.Buf256[:])
+func (b *MRTDBuffers) MrExtend(gpa uint64, data []byte, dataOffset uint32) {
+	b.Reset()
 
 	// Byte 0 through 8 contain the ASCII string 'MR.EXTEND'.
 	// Byte 16 through 23 contain the GPA (in little-endian format).

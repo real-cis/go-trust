@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"unsafe"
 
 	"gitlab.com/real-cis/cc/go-trust/internal/guid"
 )
@@ -22,6 +21,7 @@ const (
 	TDXMetadataSectionTypeMax             = 9
 	TDXMetadataAttributesExtendMR         = 0x00000001
 	TDXMetadataAttributesExtendMemPageAdd = 0x00000002
+	uint16Size                            = 2
 
 	// Memory and buffer constants
 	PageSize = 0x1000
@@ -75,20 +75,18 @@ func (f *FirmwareImage) findMetadataOffsetFromOvmfTable() uint32 {
 	r := bytes.NewReader(f.Data[offset:])
 	binary.Read(r, binary.LittleEndian, &tableLen)
 
-	tableLen -= 16 + uint16(unsafe.Sizeof(uint16(0)))
+	tableLen -= 16 + uint16Size
 
-	ovmfTableOffset := imageSize - OVMFTableFooterGUIDOffset - uint64(unsafe.Sizeof(uint16(0)))
+	ovmfTableOffset := imageSize - OVMFTableFooterGUIDOffset - uint16Size
 
 	var count uint16 = 0
 	for count < tableLen {
 		guidBuf := f.Data[ovmfTableOffset-16 : ovmfTableOffset]
 
-		var length uint16
-		binary.LittleEndian.Uint16(f.Data[ovmfTableOffset-16-2:])
-		length = binary.LittleEndian.Uint16(f.Data[ovmfTableOffset-16-2 : ovmfTableOffset-16])
+		length := binary.LittleEndian.Uint16(f.Data[ovmfTableOffset-16-uint16Size : ovmfTableOffset-16])
 
 		if bytes.Equal(guid.ToBytes(OVMFTableTDXMetadataGUID), guidBuf) {
-			metadataOffsetOffset := ovmfTableOffset - 16 - 2 - 4
+			metadataOffsetOffset := ovmfTableOffset - 16 - uint16Size - 4
 			offsetVal := binary.LittleEndian.Uint32(f.Data[metadataOffsetOffset : metadataOffsetOffset+4])
 			return uint32(imageSize) - offsetVal - TdxMetadataGuidSize
 		}
@@ -228,72 +226,68 @@ func (sec *TdxMetadataSection) Validate() error {
 	return nil
 }
 
-// Process processes a single metadata section.
+// performs TDH.MEM.PAGE.ADD for a single page if needed.
+func (sec *TdxMetadataSection) processPageAdd(pageAddress uint64, buffers *MRTDBuffers, hasher io.Writer) {
+	if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd != 0 {
+		return
+	}
+	// Use TDCALL [TDH.MEM.PAGE.ADD]
+	buffers.MemPageAdd(pageAddress)
+	hasher.Write(buffers.Buf128[:])
+}
+
+// performs TDH.MR.EXTEND operations for a single page.
+func (sec *TdxMetadataSection) processMrExtendForPage(chunkCount uint32, pageAddress uint64, dataOffset uint32, image *FirmwareImage, buffers *MRTDBuffers, hasher io.Writer) {
+	if sec.Attributes&TDXMetadataAttributesExtendMR == 0 {
+		return
+	}
+	for i := range chunkCount {
+		// Use TDCALL [TDH.MR.EXTEND]
+		buffers.MrExtend(
+			pageAddress+uint64(i)*TDHMRExtendGranularity,
+			image.Data,
+			dataOffset+i*TDHMRExtendGranularity,
+		)
+		hasher.Write(buffers.Buf128[:])
+		hasher.Write(buffers.Buf256[:])
+	}
+}
+
+// processes a single metadata section.
 // Default spec is to MEM_PAGE_ADD followed by MR.EXTEND per page (4K)
 func (sec *TdxMetadataSection) Process(image *FirmwareImage, buffers *MRTDBuffers, hasher io.Writer) {
 	fmt.Printf("Processing section type: %d \n", sec.Type)
 
 	nrPages := sec.MemoryDataSize / PageSize
 
-	// Process memory pages
-	for iter := range nrPages {
-		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
-			// Use TDCALL [TDH.MEM.PAGE.ADD]
-			buffers.MemPageAdd(sec.MemoryAddress + iter*PageSize)
-			hasher.Write(buffers.Buf128[:])
-		}
+	// Process each page: interleaved ADD then EXTEND
+	for i := range nrPages {
+		pageAddress := sec.MemoryAddress + i*PageSize
+		dataOffset := sec.DataOffset + uint32(i)*PageSize
 
-		// Process MR.EXTEND
-		if sec.Attributes&TDXMetadataAttributesExtendMR != 0 {
-			// Use TDCALL [TDH.MR.EXTEND]
-			granularity := uint64(TDHMRExtendGranularity)
-			iteration := PageSize / granularity
-			for chunkIter := range iteration {
-				buffers.MrExtend(
-					sec.MemoryAddress+iter*PageSize+chunkIter*granularity,
-					image.Data,
-					uint64(sec.DataOffset)+iter*PageSize+chunkIter*granularity,
-				)
-				hasher.Write(buffers.Buf128[:])
-				hasher.Write(buffers.Buf256[:])
-			}
-		}
+		sec.processPageAdd(pageAddress, buffers, hasher)
+		sec.processMrExtendForPage(PageSize/TDHMRExtendGranularity,
+			pageAddress, dataOffset, image, buffers, hasher)
 	}
 }
 
-// ProcessQemu processes a single metadata section using Qemu-compatible ordering.
+// processes a single metadata section using Qemu-compatible ordering.
 // Qemu does MEM_PAGE_ADD for all pages and then does MR.EXTEND for each page
 // https://github.com/intel-staging/qemu-tdx/issues/1
 func (sec *TdxMetadataSection) ProcessQemu(image *FirmwareImage, buffers *MRTDBuffers, hasher io.Writer) {
 	nrPages := sec.MemoryDataSize / PageSize
 
-	// Process memory pages
-	for iter := range nrPages {
-		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
-			// Use TDCALL [TDH.MEM.PAGE.ADD]
-			buffers.MemPageAdd(sec.MemoryAddress + iter*PageSize)
-			hasher.Write(buffers.Buf128[:])
-		}
+	// First pass: all page adds
+	for i := range nrPages {
+		pageAddress := sec.MemoryAddress + i*PageSize
+		sec.processPageAdd(pageAddress, buffers, hasher)
 	}
 
-	// Process MR.EXTEND
-	if sec.Attributes&TDXMetadataAttributesExtendMR != 0 {
-		// Use TDCALL [TDH.MR.EXTEND]
-		granularity := uint64(TDHMRExtendGranularity)
-		iteration := uint64(sec.RawDataSize) / granularity
-		for chunkIter := range iteration {
-			buffers.MrExtend(
-				sec.MemoryAddress+chunkIter*granularity,
-				image.Data,
-				uint64(sec.DataOffset)+chunkIter*granularity,
-			)
-			hasher.Write(buffers.Buf128[:])
-			hasher.Write(buffers.Buf256[:])
-		}
-	}
+	sec.processMrExtendForPage(sec.RawDataSize/TDHMRExtendGranularity,
+		sec.MemoryAddress, sec.DataOffset, image, buffers, hasher)
 }
 
-// BuildMRTD builds the MRTD from a raw TDVF image file
+// BuildMRTD builds MRTD from a raw TDVF image file
 func BuildMRTD(data []byte, qemuCompat bool) ([]byte, error) {
 	image := NewFirmwareImage(data)
 	metadataOffset := image.FindMetadataOffset()
