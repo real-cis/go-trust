@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -21,6 +22,8 @@ func TestBuildMRTD(t *testing.T) {
 		t.Skipf("Skipping test: %v", err)
 		return
 	}
+
+	fmt.Println("Size of TdxMetadataGuid", unsafe.Sizeof(TdxMetadataGuid{}))
 
 	hash := BuildMRTD(data, false)
 	fmt.Printf("MRTD Hash: %x\n", hash)

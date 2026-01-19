@@ -14,7 +14,7 @@ import (
 
 // TDX Metadata constants
 const (
-	TDXMetadataGUIDStr                    = "E9EAF9F3-168E-44D5-A8EB-7F4D8738F6AE"
+	TDXMetadataGUIDStr                    = "e9eaf9f3-168e-44d5-a8eb-7f4d8738f6ae"
 	TDXMetadataSignature                  = 0x46564454
 	TDXMetadataSectionTypeTDInfo          = 7
 	TDXMetadataSectionTypeMax             = 9
@@ -30,6 +30,11 @@ const (
 	SHA384DigestSize          = 0x30
 )
 
+var (
+	OVMFTableFooterGUID      = guid.MustParse("96b582de-1fb2-45f7-baea-a366c55a082d")
+	OVMFTableTDXMetadataGUID = guid.MustParse("e47a6535-984a-4798-865e-4685a7bf8ec2")
+)
+
 // TDX Metadata section type names
 var TDXMetadataSectionTypeStrs = [TDXMetadataSectionTypeMax]string{
 	"BFV",
@@ -43,38 +48,9 @@ var TDXMetadataSectionTypeStrs = [TDXMetadataSectionTypeMax]string{
 	"TdParams",
 }
 
-var OVMFTableFooterGUID = guid.MustParse("96b582de-1fb2-45f7-baea-a366c55a082d")
-var OVMFTableTDXMetadataGUID = guid.MustParse("e47a6535-984a-4798-865e-4685a7bf8ec2")
-
 // TdxMetadataGuid is the GUID part of TDX metadata
 type TdxMetadataGuid struct {
 	Guid uuid.UUID
-}
-
-func (t *TdxMetadataGuid) IsValid() bool {
-	metadataGuid := guid.MustParse(TDXMetadataGUIDStr)
-	return t.Guid == metadataGuid
-}
-
-func (t *TdxMetadataGuid) AsBytes() []byte {
-	return guid.ToBytes(t.Guid)
-}
-
-func NewTdxMetadataGuidFromBytes(buffer []byte) *TdxMetadataGuid {
-	g, err := guid.FromBytes(buffer)
-	if err != nil {
-		return nil
-	}
-	metadataGuid := TdxMetadataGuid{Guid: g}
-	if metadataGuid.IsValid() {
-		return &metadataGuid
-	}
-	return nil
-}
-
-func DefaultTdxMetadataGuid() TdxMetadataGuid {
-	g := guid.MustParse(TDXMetadataGUIDStr)
-	return TdxMetadataGuid{Guid: g}
 }
 
 // TdxMetadataDescriptor represents the TDX metadata descriptor
