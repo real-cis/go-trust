@@ -62,6 +62,66 @@ func (t *TdxMetadataDescriptor) IsValid() bool {
 	return true
 }
 
+// reads the metadata descriptor from the file at the given offset.
+func (t *TdxMetadataDescriptor) ReadFrom(data []byte, metadataOffset uint32) error {
+	if metadataOffset >= uint32(len(data)) {
+		return fmt.Errorf("offset out of bounds")
+	}
+
+	descOffset := metadataOffset + TdxMetadataGuidSize
+	// metadataOffset points to GUID + Descriptor.
+	// We want to skip GUID.
+
+	if uint64(descOffset)+uint64(TdxMetadataDescriptorSize) > uint64(len(data)) {
+		return fmt.Errorf("descriptor out of bounds")
+	}
+
+	descBytes := data[descOffset : descOffset+uint32(TdxMetadataDescriptorSize)]
+	reader := bytes.NewReader(descBytes)
+	binary.Read(reader, binary.LittleEndian, t)
+
+	if !t.IsValid() {
+		return fmt.Errorf("invalid descriptor")
+	}
+
+	return nil
+}
+
+// processes the metadata sections and builds the MRTD hash.
+func (desc *TdxMetadataDescriptor) ProcessSections(data []byte, metadataOffset uint32, qemuCompat bool) ([]byte, error) {
+	// Metadata buffer starts after GUID
+	start := metadataOffset + TdxMetadataGuidSize
+	if uint64(start)+uint64(desc.Length) > uint64(len(data)) {
+		return nil, fmt.Errorf("metadata buffer out of bounds")
+	}
+
+	metadataBuf := data[start : start+desc.Length]
+
+	var buffers MRTDBuffers
+	hasher := sha512.New384()
+
+	// Process each section
+	for i := range desc.NumberOfSectionEntry {
+		secOffset := TdxMetadataDescriptorSize + i*TdxMetadataSectionSize
+
+		var section TdxMetadataSection
+		secReader := bytes.NewReader(metadataBuf[secOffset:])
+		binary.Read(secReader, binary.LittleEndian, &section)
+
+		if err := section.Validate(); err != nil {
+			return nil, err
+		}
+		if qemuCompat {
+			section.ProcessQemu(data, &buffers, hasher)
+		} else {
+			section.Process(data, &buffers, hasher)
+		}
+	}
+
+	// Get final hash
+	return hasher.Sum(nil), nil
+}
+
 // TdxMetadataSection represents a TDX metadata section
 type TdxMetadataSection struct {
 	DataOffset     uint32
@@ -129,70 +189,8 @@ func findMetadataOffsetFromTdvfDescriptor(data []byte) uint32 {
 	return val - TdxMetadataGuidSize
 }
 
-// readMetadataDescriptor reads the metadata descriptor from the file at the given offset
-func readMetadataDescriptor(data []byte, metadataOffset uint32) (TdxMetadataDescriptor, error) {
-	if metadataOffset >= uint32(len(data)) {
-		return TdxMetadataDescriptor{}, fmt.Errorf("offset out of bounds")
-	}
-
-	descOffset := metadataOffset + TdxMetadataGuidSize
-	// metadataOffset points to GUID + Descriptor.
-	// We want to skip GUID.
-
-	if uint64(descOffset)+uint64(TdxMetadataDescriptorSize) > uint64(len(data)) {
-		return TdxMetadataDescriptor{}, fmt.Errorf("descriptor out of bounds")
-	}
-
-	descBytes := data[descOffset : descOffset+uint32(TdxMetadataDescriptorSize)]
-	var descriptor TdxMetadataDescriptor
-	reader := bytes.NewReader(descBytes)
-	binary.Read(reader, binary.LittleEndian, &descriptor)
-
-	if !descriptor.IsValid() {
-		return descriptor, fmt.Errorf("invalid descriptor")
-	}
-
-	return descriptor, nil
-}
-
-// processSections processes the metadata sections and builds the MRTD hash
-func processSections(data []byte, metadataOffset uint32,
-	descriptor TdxMetadataDescriptor, qemuCompat bool) ([]byte, error) {
-	// Metadata buffer starts after GUID
-	start := metadataOffset + TdxMetadataGuidSize
-	if uint64(start)+uint64(descriptor.Length) > uint64(len(data)) {
-		return nil, fmt.Errorf("metadata buffer out of bounds")
-	}
-
-	metadataBuf := data[start : start+descriptor.Length]
-
-	var buffers MRTDBuffers
-	hasher := sha512.New384()
-
-	// Process each section
-	for i := range descriptor.NumberOfSectionEntry {
-		secOffset := TdxMetadataDescriptorSize + i*TdxMetadataSectionSize
-
-		var sec TdxMetadataSection
-		secReader := bytes.NewReader(metadataBuf[secOffset:])
-		binary.Read(secReader, binary.LittleEndian, &sec)
-
-		if err := validateSection(&sec); err != nil {
-			return nil, err
-		}
-		if qemuCompat {
-			processSectionQemu(data, &sec, &buffers, hasher)
-		} else {
-			processSection(data, &sec, &buffers, hasher)
-		}
-	}
-
-	// Get final hash
-	return hasher.Sum(nil), nil
-}
-
-// validateSection validates a metadata section
-func validateSection(sec *TdxMetadataSection) error {
+// Validate validates a metadata section
+func (sec *TdxMetadataSection) Validate() error {
 	// Sanity checks
 	if sec.MemoryAddress%PageSize != 0 {
 		return fmt.Errorf("memory address must be 4K aligned")
@@ -215,9 +213,9 @@ func validateSection(sec *TdxMetadataSection) error {
 	return nil
 }
 
-// processSection processes a single metadata section
+// Process processes a single metadata section.
 // Default spec is to MEM_PAGE_ADD followed by MR.EXTEND per page (4K)
-func processSection(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffers, hasher io.Writer) {
+func (sec *TdxMetadataSection) Process(data []byte, buffers *MRTDBuffers, hasher io.Writer) {
 	fmt.Printf("Processing section type: %d \n", sec.Type)
 
 	nrPages := sec.MemoryDataSize / PageSize
@@ -248,10 +246,10 @@ func processSection(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffers, 
 	}
 }
 
-// processSectionQemu processes a single metadata section
+// ProcessQemu processes a single metadata section using Qemu-compatible ordering.
 // Qemu does MEM_PAGE_ADD for all pages and then does MR.EXTEND for each page
 // https://github.com/intel-staging/qemu-tdx/issues/1
-func processSectionQemu(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffers, hasher io.Writer) {
+func (sec *TdxMetadataSection) ProcessQemu(data []byte, buffers *MRTDBuffers, hasher io.Writer) {
 	nrPages := sec.MemoryDataSize / PageSize
 
 	// Process memory pages
@@ -284,10 +282,10 @@ func processSectionQemu(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffe
 func BuildMRTD(data []byte, qemuCompat bool) ([]byte, error) {
 	metadataOffset := findMetadataOffset(data)
 
-	descriptor, err := readMetadataDescriptor(data, metadataOffset)
-	if err != nil {
+	var descriptor TdxMetadataDescriptor
+	if err := descriptor.ReadFrom(data, metadataOffset); err != nil {
 		return nil, fmt.Errorf("invalid descriptor: %w", err)
 	}
 
-	return processSections(data, metadataOffset, descriptor, qemuCompat)
+	return descriptor.ProcessSections(data, metadataOffset, qemuCompat)
 }
