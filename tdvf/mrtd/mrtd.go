@@ -8,13 +8,15 @@ import (
 	"io"
 	"unsafe"
 
-	"github.com/google/uuid"
 	"gitlab.com/real-cis/cc/go-trust/internal/guid"
 )
 
 // TDX Metadata constants
 const (
 	TDXMetadataGUIDStr                    = "e9eaf9f3-168e-44d5-a8eb-7f4d8738f6ae"
+	TdxMetadataGuidSize                   = 16
+	TdxMetadataDescriptorSize             = 16
+	TdxMetadataSectionSize                = 32
 	TDXMetadataSignature                  = 0x46564454
 	TDXMetadataSectionTypeTDInfo          = 7
 	TDXMetadataSectionTypeMax             = 9
@@ -39,7 +41,7 @@ var (
 var TDXMetadataSectionTypeStrs = [TDXMetadataSectionTypeMax]string{
 	"BFV",
 	"CFV",
-	"TD_HOB",
+	"TdHob",
 	"TempMem",
 	"PermMem",
 	"Payload",
@@ -48,35 +50,12 @@ var TDXMetadataSectionTypeStrs = [TDXMetadataSectionTypeMax]string{
 	"TdParams",
 }
 
-// TdxMetadataGuid is the GUID part of TDX metadata
-type TdxMetadataGuid struct {
-	Guid uuid.UUID
-}
-
 // TdxMetadataDescriptor represents the TDX metadata descriptor
 type TdxMetadataDescriptor struct {
 	Signature            uint32
 	Length               uint32
 	Version              uint32
 	NumberOfSectionEntry uint32
-}
-
-func DefaultTdxMetadataDescriptor() TdxMetadataDescriptor {
-	return TdxMetadataDescriptor{
-		Signature:            TDXMetadataSignature,
-		Length:               16,
-		Version:              1,
-		NumberOfSectionEntry: 0,
-	}
-}
-
-// SetSections sets the number of sections and updates the length
-func (t *TdxMetadataDescriptor) SetSections(sections uint32) {
-	if sections >= 0x10000 {
-		panic("Too many sections")
-	}
-	t.NumberOfSectionEntry = sections
-	t.Length = 16 + sections*32
 }
 
 func (t *TdxMetadataDescriptor) IsValid() bool {
@@ -96,16 +75,6 @@ func (t *TdxMetadataDescriptor) IsValid() bool {
 	return true
 }
 
-func (t *TdxMetadataDescriptor) AsBytes() []byte {
-	sizeOfDesc := unsafe.Sizeof(TdxMetadataDescriptor{})
-	slice := make([]byte, sizeOfDesc)
-	ptr := unsafe.Pointer(t)
-	for i := uintptr(0); i < sizeOfDesc; i++ {
-		slice[i] = *(*byte)(unsafe.Pointer(uintptr(ptr) + i))
-	}
-	return slice
-}
-
 // TdxMetadataSection represents a TDX metadata section
 type TdxMetadataSection struct {
 	DataOffset     uint32
@@ -123,16 +92,6 @@ type TdxMetadataSection struct {
 // 	}
 // 	return TDXMetadataSectionTypeStrs[sectionType], true
 // }
-
-func (t *TdxMetadataSection) AsBytes() []byte {
-	sizeOfSec := unsafe.Sizeof(TdxMetadataSection{})
-	slice := make([]byte, sizeOfSec)
-	ptr := unsafe.Pointer(t)
-	for i := uintptr(0); i < sizeOfSec; i++ {
-		slice[i] = *(*byte)(unsafe.Pointer(uintptr(ptr) + i))
-	}
-	return slice
-}
 
 // findMetadataOffset locates the TDX metadata offset in the image file
 func findMetadataOffset(data []byte) uint32 {
@@ -173,7 +132,7 @@ func findMetadataOffsetFromOvmfTable(data []byte) uint32 {
 		if bytes.Equal(guid.ToBytes(OVMFTableTDXMetadataGUID), guidBuf) {
 			metadataOffsetOffset := ovmfTableOffset - 16 - 2 - 4
 			offsetVal := binary.LittleEndian.Uint32(data[metadataOffsetOffset : metadataOffsetOffset+4])
-			return uint32(imageSize) - offsetVal - uint32(unsafe.Sizeof(TdxMetadataGuid{}))
+			return uint32(imageSize) - offsetVal - TdxMetadataGuidSize
 		}
 		ovmfTableOffset -= uint64(length)
 		count += length
@@ -188,7 +147,7 @@ func findMetadataOffsetFromTdvfDescriptor(data []byte) uint32 {
 	offset := imageSize - TDVFDescriptorOffset
 
 	val := binary.LittleEndian.Uint32(data[offset : offset+4])
-	return val - uint32(unsafe.Sizeof(TdxMetadataGuid{}))
+	return val - TdxMetadataGuidSize
 }
 
 // readMetadataDescriptor reads the metadata descriptor from the file at the given offset
@@ -197,17 +156,15 @@ func readMetadataDescriptor(data []byte, metadataOff uint32) (TdxMetadataDescrip
 		return TdxMetadataDescriptor{}, fmt.Errorf("offset out of bounds")
 	}
 
-	descOffset := metadataOff + uint32(unsafe.Sizeof(TdxMetadataGuid{}))
+	descOffset := metadataOff + TdxMetadataGuidSize
 	// metadataOff points to GUID + Descriptor.
 	// We want to skip GUID.
 
-	descSize := unsafe.Sizeof(TdxMetadataDescriptor{})
-	if uint64(descOffset)+uint64(descSize) > uint64(len(data)) {
+	if uint64(descOffset)+uint64(TdxMetadataDescriptorSize) > uint64(len(data)) {
 		return TdxMetadataDescriptor{}, fmt.Errorf("descriptor out of bounds")
 	}
 
-	descBytes := data[descOffset : descOffset+uint32(descSize)]
-
+	descBytes := data[descOffset : descOffset+uint32(TdxMetadataDescriptorSize)]
 	var descriptor TdxMetadataDescriptor
 	reader := bytes.NewReader(descBytes)
 	binary.Read(reader, binary.LittleEndian, &descriptor)
@@ -220,9 +177,9 @@ func readMetadataDescriptor(data []byte, metadataOff uint32) (TdxMetadataDescrip
 }
 
 // processSections processes the metadata sections and builds the MRTD hash
-func processSections(data []byte, metadataOff uint32, descriptor TdxMetadataDescriptor, qemuCompat bool) []byte {
+func processSections(data []byte, metadataOffset uint32, descriptor TdxMetadataDescriptor, qemuCompat bool) []byte {
 	// Metadata buffer starts after GUID
-	start := metadataOff + uint32(unsafe.Sizeof(TdxMetadataGuid{}))
+	start := metadataOffset + TdxMetadataGuidSize
 	if uint64(start)+uint64(descriptor.Length) > uint64(len(data)) {
 		panic("metadata buffer out of bounds")
 	}
@@ -234,9 +191,8 @@ func processSections(data []byte, metadataOff uint32, descriptor TdxMetadataDesc
 	hasher := sha512.New384()                   // SHA-384 hasher
 
 	// Process each section
-	descOffset := unsafe.Sizeof(TdxMetadataDescriptor{})
-	for i := uint32(0); i < descriptor.NumberOfSectionEntry; i++ {
-		secOffset := int(descOffset + uintptr(i)*unsafe.Sizeof(TdxMetadataSection{}))
+	for i := 0; i < int(descriptor.NumberOfSectionEntry); i++ {
+		secOffset := TdxMetadataDescriptorSize + i*TdxMetadataSectionSize
 
 		var sec TdxMetadataSection
 		secReader := bytes.NewReader(metadataBuf[secOffset:])

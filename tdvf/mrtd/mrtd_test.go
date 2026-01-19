@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -23,13 +22,11 @@ func TestBuildMRTD(t *testing.T) {
 		return
 	}
 
-	fmt.Println("Size of TdxMetadataGuid", unsafe.Sizeof(TdxMetadataGuid{}))
-
 	hash := BuildMRTD(data, false)
 	fmt.Printf("MRTD Hash: %x\n", hash)
 	assert.Equal(t, testdataHashDefault, hex.EncodeToString(hash), "MRTD hashes do not match")
 
 	hash = BuildMRTD(data, true)
-	fmt.Printf("MRTD Hash: %x\n", hash)
+	fmt.Printf("MRTD Hash Qemu compatible: %x\n", hash)
 	assert.Equal(t, testdataHashQemu, hex.EncodeToString(hash), "MRTD hashes do not match")
 }
