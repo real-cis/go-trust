@@ -166,9 +166,8 @@ func processSections(data []byte, metadataOffset uint32,
 
 	metadataBuf := data[start : start+descriptor.Length]
 
-	var buffer128 [MRTDExtensionBufferSize]byte // used by page add
-	var buffer256 [TDHMRExtendGranularity]byte  // used by mr extend
-	hasher := sha512.New384()                   // SHA-384 hasher
+	var buffers MRTDBuffers
+	hasher := sha512.New384()
 
 	// Process each section
 	for i := range descriptor.NumberOfSectionEntry {
@@ -182,9 +181,9 @@ func processSections(data []byte, metadataOffset uint32,
 			return nil, err
 		}
 		if qemuCompat {
-			processSectionQemu(data, &sec, &buffer128, &buffer256, hasher)
+			processSectionQemu(data, &sec, &buffers, hasher)
 		} else {
-			processSection(data, &sec, &buffer128, &buffer256, hasher)
+			processSection(data, &sec, &buffers, hasher)
 		}
 	}
 
@@ -218,9 +217,7 @@ func validateSection(sec *TdxMetadataSection) error {
 
 // processSection processes a single metadata section
 // Default spec is to MEM_PAGE_ADD followed by MR.EXTEND per page (4K)
-func processSection(data []byte, sec *TdxMetadataSection,
-	buffer128 *[MRTDExtensionBufferSize]byte,
-	buffer256 *[TDHMRExtendGranularity]byte, hasher io.Writer) {
+func processSection(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffers, hasher io.Writer) {
 	fmt.Printf("Processing section type: %d \n", sec.Type)
 
 	nrPages := sec.MemoryDataSize / PageSize
@@ -229,8 +226,8 @@ func processSection(data []byte, sec *TdxMetadataSection,
 	for iter := range nrPages {
 		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
 			// Use TDCALL [TDH.MEM.PAGE.ADD]
-			fillBufferWithMemPageAdd(buffer128, sec.MemoryAddress+iter*PageSize)
-			hasher.Write(buffer128[:])
+			buffers.MemPageAdd(sec.MemoryAddress + iter*PageSize)
+			hasher.Write(buffers.Buf128[:])
 		}
 
 		// Process MR.EXTEND
@@ -239,15 +236,13 @@ func processSection(data []byte, sec *TdxMetadataSection,
 			granularity := uint64(TDHMRExtendGranularity)
 			iteration := PageSize / granularity
 			for chunkIter := range iteration {
-				fillBufferWithMrExtend(
-					buffer128,
-					buffer256,
+				buffers.MemPageExtend(
 					sec.MemoryAddress+iter*PageSize+chunkIter*granularity,
 					data,
 					uint64(sec.DataOffset)+iter*PageSize+chunkIter*granularity,
 				)
-				hasher.Write(buffer128[:])
-				hasher.Write(buffer256[:])
+				hasher.Write(buffers.Buf128[:])
+				hasher.Write(buffers.Buf256[:])
 			}
 		}
 	}
@@ -255,16 +250,16 @@ func processSection(data []byte, sec *TdxMetadataSection,
 
 // processSectionQemu processes a single metadata section
 // Qemu does MEM_PAGE_ADD for all pages and then does MR.EXTEND for each page
-func processSectionQemu(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDExtensionBufferSize]byte,
-	buffer256 *[TDHMRExtendGranularity]byte, hasher io.Writer) {
+// https://github.com/intel-staging/qemu-tdx/issues/1
+func processSectionQemu(data []byte, sec *TdxMetadataSection, buffers *MRTDBuffers, hasher io.Writer) {
 	nrPages := sec.MemoryDataSize / PageSize
 
 	// Process memory pages
 	for iter := range nrPages {
 		if sec.Attributes&TDXMetadataAttributesExtendMemPageAdd == 0 {
 			// Use TDCALL [TDH.MEM.PAGE.ADD]
-			fillBufferWithMemPageAdd(buffer128, sec.MemoryAddress+iter*PageSize)
-			hasher.Write(buffer128[:])
+			buffers.MemPageAdd(sec.MemoryAddress + iter*PageSize)
+			hasher.Write(buffers.Buf128[:])
 		}
 	}
 
@@ -274,15 +269,13 @@ func processSectionQemu(data []byte, sec *TdxMetadataSection, buffer128 *[MRTDEx
 		granularity := uint64(TDHMRExtendGranularity)
 		iteration := uint64(sec.RawDataSize) / granularity
 		for chunkIter := range iteration {
-			fillBufferWithMrExtend(
-				buffer128,
-				buffer256,
+			buffers.MemPageExtend(
 				sec.MemoryAddress+chunkIter*granularity,
 				data,
 				uint64(sec.DataOffset)+chunkIter*granularity,
 			)
-			hasher.Write(buffer128[:])
-			hasher.Write(buffer256[:])
+			hasher.Write(buffers.Buf128[:])
+			hasher.Write(buffers.Buf256[:])
 		}
 	}
 }

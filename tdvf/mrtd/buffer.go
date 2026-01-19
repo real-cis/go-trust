@@ -16,39 +16,38 @@ const (
 	MRExtendGPASize         = 0x8
 )
 
-// zeroize fills a byte array with zeros
-func zeroize(buf []byte) {
-	for i := range buf {
-		buf[i] = 0
-	}
+// MRTDBuffers holds reusable buffers for MRTD computation.
+type MRTDBuffers struct {
+	Buf128 [MRTDExtensionBufferSize]byte // metadata buffer (page add and mr extend)
+	Buf256 [TDHMRExtendGranularity]byte  // data buffer (mr extend)
 }
 
-// fillBufferWithMemPageAdd fills a buffer with memory page add data
-func fillBufferWithMemPageAdd(buf *[MRTDExtensionBufferSize]byte, gpa uint64) {
-	zeroize(buf[:])
+// Reset clears both buffers, setting all bytes to zero.
+func (b *MRTDBuffers) Reset() {
+	clear(b.Buf128[:])
+	clear(b.Buf256[:])
+}
+
+// MemPageAdd fills Buf128 with memory page add data.
+func (b *MRTDBuffers) MemPageAdd(gpa uint64) {
+	clear(b.Buf128[:])
 
 	// Byte 0 through 11 contain the ASCII string 'MEM.PAGE.ADD'.
 	// Byte 16 through 23 contain the GPA (in little-endian format).
 	// All the other bytes contain 0.
-	copy(buf[:MemPageAddASCIISize], []byte("MEM.PAGE.ADD"))
-	binary.LittleEndian.PutUint64(buf[MemPageAddGPAOffset:MemPageAddGPAOffset+MemPageAddGPASize], gpa)
+	copy(b.Buf128[:MemPageAddASCIISize], []byte("MEM.PAGE.ADD"))
+	binary.LittleEndian.PutUint64(b.Buf128[MemPageAddGPAOffset:MemPageAddGPAOffset+MemPageAddGPASize], gpa)
 }
 
-// fillBufferWithMrExtend fills buffers for MR_EXTEND operation
-func fillBufferWithMrExtend(
-	buf128 *[MRTDExtensionBufferSize]byte,
-	buf256 *[TDHMRExtendGranularity]byte,
-	gpa uint64,
-	data []byte,
-	dataOffset uint64,
-) {
-	zeroize(buf128[:])
-	zeroize(buf256[:])
+// MemPageExtend fills Buf128 and Buf256 for MR_EXTEND operation.
+func (b *MRTDBuffers) MemPageExtend(gpa uint64, data []byte, dataOffset uint64) {
+	clear(b.Buf128[:])
+	clear(b.Buf256[:])
 
 	// Byte 0 through 8 contain the ASCII string 'MR.EXTEND'.
 	// Byte 16 through 23 contain the GPA (in little-endian format).
-	copy(buf128[:MRExtendASCIISize], []byte("MR.EXTEND"))
-	binary.LittleEndian.PutUint64(buf128[MRExtendGPAOffset:MRExtendGPAOffset+MRExtendGPASize], gpa)
+	copy(b.Buf128[:MRExtendASCIISize], []byte("MR.EXTEND"))
+	binary.LittleEndian.PutUint64(b.Buf128[MRExtendGPAOffset:MRExtendGPAOffset+MRExtendGPASize], gpa)
 
-	copy(buf256[:], data[dataOffset:dataOffset+TDHMRExtendGranularity])
+	copy(b.Buf256[:], data[dataOffset:dataOffset+TDHMRExtendGranularity])
 }
