@@ -39,8 +39,8 @@ func (b *MRTDBuffers) MemPageAdd(gpa uint64) {
 	binary.LittleEndian.PutUint64(b.Buf128[MemPageAddGPAOffset:MemPageAddGPAOffset+MemPageAddGPASize], gpa)
 }
 
-// MemPageExtend fills Buf128 and Buf256 for MR_EXTEND operation.
-func (b *MRTDBuffers) MemPageExtend(gpa uint64, data []byte, dataOffset uint64) {
+// MrExtend fills Buf128 and Buf256 for MR_EXTEND operation.
+func (b *MRTDBuffers) MrExtend(gpa uint64, data []byte, dataOffset uint64) {
 	clear(b.Buf128[:])
 	clear(b.Buf256[:])
 
