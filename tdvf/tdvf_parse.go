@@ -114,7 +114,6 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 		// 		dataLen = *maxDataLen
 		// 	}
 		// 	fmt.Printf("  Data:\n")
-		// 	fmt.Printf("%s", hexDump(evar.Data[:dataLen], 4))
 		// 	if dataLen < len(evar.Data) {
 		// 		fmt.Printf("    ... (%d more bytes)\n", len(evar.Data)-dataLen)
 		// 	}
@@ -123,22 +122,26 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 		var measurement []byte
 		switch name {
 		case "PK":
-			measurement, err = MeasureTdxEfiVariable("8BE4DF61-93CA-11D2-AA0D-00E098032B8C", "PK", evar.Data)
+			tdxVar := NewTdxEfiVariable(evar)
+			measurement, err = tdxVar.Measure()
 			if err == nil {
 				sbVars.PK = measurement
 			}
 		case "KEK":
-			measurement, err = MeasureTdxEfiVariable("8BE4DF61-93CA-11D2-AA0D-00E098032B8C", "KEK", evar.Data)
+			tdxVar := NewTdxEfiVariable(evar)
+			measurement, err = tdxVar.Measure()
 			if err == nil {
 				sbVars.KEK = measurement
 			}
 		case "db":
-			measurement, err = MeasureTdxEfiVariable("D719B2CB-3D3A-4596-A3BC-DAD00E67656F", "db", evar.Data)
+			tdxVar := NewTdxEfiVariable(evar)
+			measurement, err = tdxVar.Measure()
 			if err == nil {
 				sbVars.DB = measurement
 			}
 		case "dbx":
-			measurement, err = MeasureTdxEfiVariable("D719B2CB-3D3A-4596-A3BC-DAD00E67656F", "dbx", evar.Data)
+			tdxVar := NewTdxEfiVariable(evar)
+			measurement, err = tdxVar.Measure()
 			if err == nil {
 				sbVars.DBX = measurement
 			}
@@ -164,47 +167,5 @@ func joinStrings(strs []string, sep string) string {
 	for i := 1; i < len(strs); i++ {
 		result += sep + strs[i]
 	}
-	return result
-}
-
-func hexDump(data []byte, indent int) string {
-	indentStr := ""
-	for i := 0; i < indent; i++ {
-		indentStr += " "
-	}
-
-	result := ""
-	for i := 0; i < len(data); i += 16 {
-		result += indentStr
-		result += fmt.Sprintf("%04x: ", i)
-
-		// Hex bytes
-		for j := 0; j < 16; j++ {
-			if i+j < len(data) {
-				result += fmt.Sprintf("%02x ", data[i+j])
-			} else {
-				result += "   "
-			}
-			if j == 7 {
-				result += " "
-			}
-		}
-
-		result += " |"
-
-		// ASCII representation
-		for j := 0; j < 16; j++ {
-			if i+j < len(data) {
-				b := data[i+j]
-				if b >= 32 && b <= 126 {
-					result += string(b)
-				} else {
-					result += "."
-				}
-			}
-		}
-		result += "|\n"
-	}
-
 	return result
 }
