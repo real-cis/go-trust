@@ -68,7 +68,7 @@ func (f *FirmwareImage) FindMetadataOffset() uint32 {
 
 // finds metadata offset using OVMF table
 func (f *FirmwareImage) findMetadataOffsetFromOvmfTable() uint32 {
-	imageSize := uint64(f.Size())
+	imageSize := f.Size()
 	offset := imageSize - OVMFTableFooterGUIDOffset
 
 	var tableLen uint16
@@ -82,7 +82,6 @@ func (f *FirmwareImage) findMetadataOffsetFromOvmfTable() uint32 {
 	var count uint16 = 0
 	for count < tableLen {
 		guidBuf := f.Data[ovmfTableOffset-16 : ovmfTableOffset]
-
 		length := binary.LittleEndian.Uint16(f.Data[ovmfTableOffset-16-uint16Size : ovmfTableOffset-16])
 
 		if bytes.Equal(guid.ToBytes(OVMFTableTDXMetadataGUID), guidBuf) {
@@ -90,11 +89,11 @@ func (f *FirmwareImage) findMetadataOffsetFromOvmfTable() uint32 {
 			offsetVal := binary.LittleEndian.Uint32(f.Data[metadataOffsetOffset : metadataOffsetOffset+4])
 			return uint32(imageSize) - offsetVal - TdxMetadataGuidSize
 		}
-		ovmfTableOffset -= uint64(length)
+		ovmfTableOffset -= int(length)
 		count += length
 	}
 
-	return 0 // If not found
+	return 0
 }
 
 // finds metadata offset using TDVF descriptor
