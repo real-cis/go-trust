@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+
+	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
 )
 
 const (
@@ -172,9 +174,9 @@ func (s *Edk2VarStore) parseVarStore(start int) error {
 }
 
 // GetVarList retrieves all variables from the store
-func (s *Edk2VarStore) GetVarList() (EfiVarList, error) {
+func (s *Edk2VarStore) GetVarList() (uefi.EfiVarList, error) {
 	pos := s.start
-	varlist := make(EfiVarList)
+	varlist := make(uefi.EfiVarList)
 
 	for pos < s.end {
 		// Check if we have enough data for the header
@@ -213,7 +215,7 @@ func (s *Edk2VarStore) GetVarList() (EfiVarList, error) {
 			}
 
 			// Parse variable name (UCS-16)
-			name := NewUTF16(s.filedata, pos+44+16)
+			name := uefi.NewUTF16(s.filedata, pos+44+16)
 
 			// Extract variable data
 			dataStart := pos + 44 + 16 + int(nsize)
@@ -221,7 +223,7 @@ func (s *Edk2VarStore) GetVarList() (EfiVarList, error) {
 			copy(data, s.filedata[dataStart:dataStart+int(dsize)])
 
 			// Create EfiVar
-			evar := NewEfiVar(name, guid, varHeader.Attr, data, varHeader.Count, pk)
+			evar := uefi.NewEfiVar(name, guid, varHeader.Attr, data, varHeader.Count, pk)
 			evar.ParseTime(s.filedata, pos+16)
 
 			varlist[name.String()] = evar

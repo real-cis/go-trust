@@ -1,4 +1,4 @@
-package edk2
+package uefi
 
 import (
 	"testing"

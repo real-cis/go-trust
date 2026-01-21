@@ -1,13 +1,11 @@
 package tdvf
 
 import (
-	"crypto/sha512"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"sort"
 
-	"gitlab.com/real-cis/cc/go-trust/internal/guid"
+	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
 	"gitlab.com/real-cis/cc/go-trust/tdvf/edk2"
 )
 
@@ -19,48 +17,7 @@ type SecureBootVars struct {
 	DBX []byte
 }
 
-// TdxEfiVariable represents an EFI variable with TDX measurement capabilities.
-type TdxEfiVariable struct {
-	*edk2.EfiVar
-}
-
-// NewTdxEfiVariable creates a new TdxEfiVariable from an EfiVar.
-func NewTdxEfiVariable(efiVar *edk2.EfiVar) *TdxEfiVariable {
-	return &TdxEfiVariable{EfiVar: efiVar}
-}
-
-// Measure computes the SHA384 measurement of the EFI variable.
-// The measurement includes: GUID (16 bytes) + name length (8 bytes) +
-// data size (8 bytes) + UTF-16 name + data
-func (v *TdxEfiVariable) Measure() ([]byte, error) {
-	var buffer []byte
-
-	buffer = append(buffer, guid.ToBytes(v.GUID)...)
-
-	// Variable name length
-	nameLenBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(nameLenBytes, uint64(len(v.Name.String())))
-	buffer = append(buffer, nameLenBytes...)
-
-	// Variable data size
-	dataSizeBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(dataSizeBytes, uint64(len(v.Data)))
-	buffer = append(buffer, dataSizeBytes...)
-
-	// Add variable name (UTF-16 encoded)
-	buffer = append(buffer, v.Name.Bytes()...)
-
-	if v.Data != nil {
-		buffer = append(buffer, v.Data...)
-	}
-
-	hash := sha512.New384()
-	hash.Write(buffer)
-	return hash.Sum(nil), nil
-}
-
-// MeasureSecureBootVariables parses secure boot variables from firmware data
-// and returns their measurements.
+// parses and measures secure boot variables from firmware data
 func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 	// Probe file
 	offset := edk2.FindNvData(data)
@@ -102,16 +59,16 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 
 		// Decode attributes
 		attrs := []string{}
-		if evar.Attr&edk2.EFI_VARIABLE_NON_VOLATILE != 0 {
+		if evar.Attr&uefi.EFI_VARIABLE_NON_VOLATILE != 0 {
 			attrs = append(attrs, "NV")
 		}
-		if evar.Attr&edk2.EFI_VARIABLE_BOOTSERVICE_ACCESS != 0 {
+		if evar.Attr&uefi.EFI_VARIABLE_BOOTSERVICE_ACCESS != 0 {
 			attrs = append(attrs, "BS")
 		}
-		if evar.Attr&edk2.EFI_VARIABLE_RUNTIME_ACCESS != 0 {
+		if evar.Attr&uefi.EFI_VARIABLE_RUNTIME_ACCESS != 0 {
 			attrs = append(attrs, "RT")
 		}
-		if evar.Attr&edk2.EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS != 0 {
+		if evar.Attr&uefi.EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS != 0 {
 			attrs = append(attrs, "AT")
 		}
 		if len(attrs) > 0 {
@@ -121,32 +78,21 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 		var measurement []byte
 		switch name {
 		case "PK":
-			tdxVar := NewTdxEfiVariable(evar)
-			measurement, err = tdxVar.Measure()
-			if err == nil {
-				sbVars.PK = measurement
-			}
+			varData := uefi.NewUefiVariableDataFromEfiVar(evar)
+			measurement = varData.Measure()
+			sbVars.PK = measurement
 		case "KEK":
-			tdxVar := NewTdxEfiVariable(evar)
-			measurement, err = tdxVar.Measure()
-			if err == nil {
-				sbVars.KEK = measurement
-			}
+			varData := uefi.NewUefiVariableDataFromEfiVar(evar)
+			measurement = varData.Measure()
+			sbVars.KEK = measurement
 		case "db":
-			tdxVar := NewTdxEfiVariable(evar)
-			measurement, err = tdxVar.Measure()
-			if err == nil {
-				sbVars.DB = measurement
-			}
+			varData := uefi.NewUefiVariableDataFromEfiVar(evar)
+			measurement = varData.Measure()
+			sbVars.DB = measurement
 		case "dbx":
-			tdxVar := NewTdxEfiVariable(evar)
-			measurement, err = tdxVar.Measure()
-			if err == nil {
-				sbVars.DBX = measurement
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to measure variable %s: %v", name, err)
+			varData := uefi.NewUefiVariableDataFromEfiVar(evar)
+			measurement = varData.Measure()
+			sbVars.DBX = measurement
 		}
 		fmt.Println()
 
