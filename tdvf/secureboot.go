@@ -1,20 +1,17 @@
 package tdvf
 
 import (
+	"crypto/sha512"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"sort"
 
+	"gitlab.com/real-cis/cc/go-trust/internal/guid"
 	"gitlab.com/real-cis/cc/go-trust/tdvf/edk2"
-	"gitlab.com/real-cis/cc/go-trust/tdvf/mrtd"
 )
 
-type TDVFMeasurements struct {
-	MRTD       []byte
-	SecureBoot SecureBootVars
-}
-
+// SecureBootVars contains the measurements of UEFI Secure Boot variables.
 type SecureBootVars struct {
 	PK  []byte
 	KEK []byte
@@ -22,30 +19,49 @@ type SecureBootVars struct {
 	DBX []byte
 }
 
-func ParseFirmware(filename string) (*TDVFMeasurements, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	mrtdHash, err := mrtd.BuildMRTD(data, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build MRTD: %w", err)
-	}
-
-	sbVars, err := ParseSecureBootVariables(data, filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse secure boot variables: %w", err)
-	}
-
-	return &TDVFMeasurements{
-		MRTD:       mrtdHash,
-		SecureBoot: *sbVars,
-	}, nil
+// TdxEfiVariable represents an EFI variable with TDX measurement capabilities.
+type TdxEfiVariable struct {
+	*edk2.EfiVar
 }
 
-// TODO cleanup, make library compatible
-func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, error) {
+// NewTdxEfiVariable creates a new TdxEfiVariable from an EfiVar.
+func NewTdxEfiVariable(efiVar *edk2.EfiVar) *TdxEfiVariable {
+	return &TdxEfiVariable{EfiVar: efiVar}
+}
+
+// Measure computes the SHA384 measurement of the EFI variable.
+// The measurement includes: GUID (16 bytes) + name length (8 bytes) +
+// data size (8 bytes) + UTF-16 name + data
+func (v *TdxEfiVariable) Measure() ([]byte, error) {
+	var buffer []byte
+
+	buffer = append(buffer, guid.ToBytes(v.GUID)...)
+
+	// Variable name length
+	nameLenBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(nameLenBytes, uint64(len(v.Name.String())))
+	buffer = append(buffer, nameLenBytes...)
+
+	// Variable data size
+	dataSizeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(dataSizeBytes, uint64(len(v.Data)))
+	buffer = append(buffer, dataSizeBytes...)
+
+	// Add variable name (UTF-16 encoded)
+	buffer = append(buffer, v.Name.Bytes()...)
+
+	if v.Data != nil {
+		buffer = append(buffer, v.Data...)
+	}
+
+	hash := sha512.New384()
+	hash.Write(buffer)
+	return hash.Sum(nil), nil
+}
+
+// MeasureSecureBootVariables parses secure boot variables from firmware data
+// and returns their measurements.
+func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 	// Probe file
 	offset := edk2.FindNvData(data)
 	if offset == -1 {
@@ -53,7 +69,7 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 	}
 
 	// Parse variable store
-	store, err := edk2.NewEdk2VarStoreFromBytes(data, filename)
+	store, err := edk2.NewEdk2VarStore(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse variable store: %v", err)
 	}
@@ -99,25 +115,8 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 			attrs = append(attrs, "AT")
 		}
 		if len(attrs) > 0 {
-			fmt.Printf(" [%s]", joinStrings(attrs, ","))
+			fmt.Printf(" %s", attrs)
 		}
-		fmt.Println()
-
-		fmt.Printf("  Count:      %d\n", evar.Count)
-		fmt.Printf("  PkIdx:      %d\n", evar.PkIdx)
-		fmt.Printf("  Time:       %s\n", evar.Time.Format("2006-01-02 15:04:05 MST"))
-		fmt.Printf("  Data size:  %d bytes\n", len(evar.Data))
-
-		// if *showData && len(evar.Data) > 0 {
-		// 	dataLen := len(evar.Data)
-		// 	if dataLen > *maxDataLen {
-		// 		dataLen = *maxDataLen
-		// 	}
-		// 	fmt.Printf("  Data:\n")
-		// 	if dataLen < len(evar.Data) {
-		// 		fmt.Printf("    ... (%d more bytes)\n", len(evar.Data)-dataLen)
-		// 	}
-		// }
 
 		var measurement []byte
 		switch name {
@@ -149,6 +148,13 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 		if err != nil {
 			return nil, fmt.Errorf("failed to measure variable %s: %v", name, err)
 		}
+		fmt.Println()
+
+		fmt.Printf("  Count:      %d\n", evar.Count)
+		fmt.Printf("  PkIdx:      %d\n", evar.PkIdx)
+		fmt.Printf("  Time:       %s\n", evar.Time.Format("2006-01-02 15:04:05 MST"))
+		fmt.Printf("  Data size:  %d bytes\n", len(evar.Data))
+
 		if measurement != nil {
 			fmt.Printf("  Measurement: %s\n", hex.EncodeToString(measurement))
 		}
@@ -157,15 +163,4 @@ func ParseSecureBootVariables(data []byte, filename string) (*SecureBootVars, er
 	}
 
 	return sbVars, nil
-}
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
 }

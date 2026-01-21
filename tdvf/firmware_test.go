@@ -11,14 +11,14 @@ const (
 
 func TestParseFirmware(t *testing.T) {
 	filePath := "mrtd/testdata/OVMF.fd"
-	measurements, err := ParseFirmware(filePath)
+	measurements, err := MeasureFirmware(filePath)
 	if err != nil {
 		t.Fatalf("ParseFirmware failed: %v", err)
 	}
 	if measurements == nil {
 		t.Fatal("Expected measurements, got nil")
 	}
-	
+
 	// Verify MRTD if possible
 	if len(measurements.MRTD) == 0 {
 		t.Error("Expected MRTD to be present")
