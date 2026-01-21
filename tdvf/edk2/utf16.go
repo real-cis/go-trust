@@ -10,15 +10,8 @@ type StringUTF16 struct {
 	data []uint16
 }
 
-// NewStringUTF16 creates a new StringUTF16 from a Go string
-func NewStringUTF16(s string) *StringUTF16 {
-	return &StringUTF16{
-		data: utf16.Encode([]rune(s)),
-	}
-}
-
-// ParseUTF16 reads a null-terminated UTF-16LE string from binary data at the specified offset.
-func ParseUTF16(data []byte, offset int) *StringUTF16 {
+// NewUTF16 reads a null-terminated UTF-16LE string from binary data at the specified offset.
+func NewUTF16(data []byte, offset int) *StringUTF16 {
 	chars := make([]uint16, 0, 32) // preallocate for typical variable names
 
 	for pos := offset; pos+1 < len(data); pos += 2 {
@@ -52,14 +45,3 @@ func (s *StringUTF16) Bytes() []byte {
 func (s *StringUTF16) Size() int {
 	return (len(s.data) + 1) * 2
 }
-
-// TODO cleanup
-// Utf16Encode converts a string to UTF-16LE bytes
-// func Utf16Encode(input string) []byte {
-// 	u16 := utf16.Encode([]rune(input))
-// 	buf := new(bytes.Buffer)
-// 	for _, r := range u16 {
-// 		binary.Write(buf, binary.LittleEndian, r)
-// 	}
-// 	return buf.Bytes()
-// }

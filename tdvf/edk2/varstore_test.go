@@ -5,7 +5,7 @@ import (
 )
 
 func TestFindNvData(t *testing.T) {
-	// Create test data with NvData GUID at offset 1024+16
+	// test data with NvData GUID at offset 1024+16
 	data := make([]byte, 2048)
 
 	// Place NvData GUID at offset 1024+16

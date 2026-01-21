@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
-	"os"
 )
 
 const (
@@ -27,25 +26,13 @@ const (
 
 // Edk2VarStore represents an EDK2 variable store
 type Edk2VarStore struct {
-	filename string
 	filedata []byte
 	start    int
 	end      int
 }
 
-// NewEdk2VarStore creates a new variable store parser from a file
-func NewEdk2VarStore(filename string) (*Edk2VarStore, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-	return NewEdk2VarStoreFromBytes(data, filename)
-}
-
-// NewEdk2VarStoreFromBytes creates a new variable store parser from a byte slice
-func NewEdk2VarStoreFromBytes(data []byte, filename string) (*Edk2VarStore, error) {
+func NewEdk2VarStore(data []byte) (*Edk2VarStore, error) {
 	store := &Edk2VarStore{
-		filename: filename,
 		filedata: data,
 	}
 
@@ -74,17 +61,6 @@ func FindNvData(data []byte) int {
 		offset += 1024
 	}
 	return -1
-}
-
-// Probe checks if the file is a valid EDK2 variable store
-func Probe(filename string) (bool, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return false, err
-	}
-
-	offset := FindNvData(data)
-	return offset != -1, nil
 }
 
 // FirmwareVolumeHeader represents the firmware volume header structure
@@ -123,7 +99,7 @@ type VariableHeader struct {
 func (s *Edk2VarStore) parseVolume() error {
 	offset := FindNvData(s.filedata)
 	if offset == -1 {
-		return fmt.Errorf("%s: varstore not found", s.filename)
+		return fmt.Errorf("varstore not found")
 	}
 
 	guid, err := ParseGUIDBin(s.filedata, offset+16)
@@ -146,11 +122,11 @@ func (s *Edk2VarStore) parseVolume() error {
 		GUIDName(guid), header.Vlen, header.Rev, header.Blocks, header.Blksize, header.Blocks*header.Blksize)
 
 	if header.Sig != FVH_SIGNATURE {
-		return fmt.Errorf("%s: not a firmware volume (signature mismatch)", s.filename)
+		return fmt.Errorf("not a firmware volume (signature mismatch)")
 	}
 
 	if guid != GUIDNvData {
-		return fmt.Errorf("%s: not a variable store (GUID mismatch)", s.filename)
+		return fmt.Errorf("not a variable store (GUID mismatch)")
 	}
 
 	return s.parseVarStore(offset + int(header.Hlen))
@@ -177,15 +153,15 @@ func (s *Edk2VarStore) parseVarStore(start int) error {
 		GUIDName(guid), header.Size, header.Format, header.State)
 
 	if guid != GUIDAuthVars {
-		return fmt.Errorf("%s: unknown varstore guid", s.filename)
+		return fmt.Errorf("unknown varstore guid")
 	}
 
 	if header.Format != VARSTORE_FORMAT {
-		return fmt.Errorf("%s: unknown varstore format", s.filename)
+		return fmt.Errorf("unknown varstore format")
 	}
 
 	if header.State != VARSTORE_STATE {
-		return fmt.Errorf("%s: unknown varstore state", s.filename)
+		return fmt.Errorf("unknown varstore state")
 	}
 
 	s.start = start + 16 + 12
@@ -237,7 +213,7 @@ func (s *Edk2VarStore) GetVarList() (EfiVarList, error) {
 			}
 
 			// Parse variable name (UCS-16)
-			name := ParseUTF16(s.filedata, pos+44+16)
+			name := NewUTF16(s.filedata, pos+44+16)
 
 			// Extract variable data
 			dataStart := pos + 44 + 16 + int(nsize)
