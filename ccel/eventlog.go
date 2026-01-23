@@ -61,7 +61,6 @@ func (p *EventLogParser) formatTcgPCClient() FormattedTcgEvent {
 }
 
 type FormattedTcgEvent interface {
-	Dump()
 	GetFormatType() tcg.EventFormat
 	GetRtmrIndex() uint32
 	GetEventType() tcg.EventType
@@ -98,21 +97,6 @@ func (e *RtmrEvent) GetFormatType() tcg.EventFormat {
 
 func (e *RtmrEvent) GetEvent() []byte {
 	return e.Event
-}
-
-// Dump implements FormatedTcgEvent.
-func (e *RtmrEvent) Dump() {
-	l := log.Default()
-	l.Println("----------------------------------Event Log Entry---------------------------------")
-	l.Printf("RTMR              : %d\n", e.RtmrIndex)
-	l.Printf("Type              : 0x%X (%v)\n", uint32(e.EventType), e.EventType)
-	count := 0
-	for _, digest := range e.Digests {
-		l.Printf("Algorithm_id[%d]   : %d (%v) \n", count, digest.AlgID, digest.AlgID)
-		l.Printf("Digest[%d]: %s\n", count, hex.EncodeToString(digest.Hash))
-		count += 1
-	}
-	l.Println("Event:")
 }
 
 var _ FormattedTcgEvent = (*TcgPcClientRtmrEvent)(nil)
@@ -210,15 +194,6 @@ func (l *EventLogger) Parse() error {
 	return nil
 }
 
-func (l *EventLogger) Dump() {
-	lg := log.Default()
-
-	lg.Printf("Event Log Entries:\n")
-	for _, el := range l.tcgEventLogs {
-		el.Dump()
-	}
-}
-
 func (l *EventLogger) Count() int {
 	return l.count
 }
@@ -245,6 +220,21 @@ func (l *EventLogger) Select(start, count int) (*EventLogger, error) {
 
 func (l *EventLogger) EventLog() []FormattedTcgEvent {
 	return l.tcgEventLogs
+}
+
+func (l *EventLogger) FilterByEventType(eventTypes []tcg.EventType) []FormattedTcgEvent {
+	typeMap := make(map[tcg.EventType]bool)
+	for _, et := range eventTypes {
+		typeMap[et] = true
+	}
+
+	filtered := make([]FormattedTcgEvent, 0)
+	for _, event := range l.tcgEventLogs {
+		if typeMap[event.GetEventType()] {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }
 
 func ReplayFormatedEventLog(formatedEventLogs []FormattedTcgEvent) map[int]map[tcg.Algorithm][]byte {

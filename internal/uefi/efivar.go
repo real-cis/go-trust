@@ -82,11 +82,9 @@ func (v *EfiVar) ParseTime(data []byte, offset int) error {
 	return nil
 }
 
-// EfiVarList is a map of variable names to EfiVar
 type EfiVarList map[string]*EfiVar
 
-// UefiVariableData represents the UEFI_VARIABLE_DATA structure used in
-// TCG event logs (EV_EFI_VARIABLE_DRIVER_CONFIG).
+// UEFI_VARIABLE_DATA structure used in TCG event logs (EV_EFI_VARIABLE_DRIVER_CONFIG).
 // This is the serialized format for measuring EFI variables.
 type UefiVariableData struct {
 	GUID       uuid.UUID    // 16 bytes - GUID identifying the variable
