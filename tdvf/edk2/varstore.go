@@ -108,7 +108,6 @@ func (s *Edk2VarStore) parseVolume() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse GUID: %w", err)
 	}
-	fmt.Println("Parsed GUID:", guid.String())
 
 	if offset+48 > len(s.filedata) {
 		return fmt.Errorf("insufficient data for volume header")
@@ -214,7 +213,6 @@ func (s *Edk2VarStore) GetVarList() (uefi.EfiVarList, error) {
 				break
 			}
 
-			// Parse variable name (UCS-16)
 			name := uefi.NewUTF16(s.filedata, pos+44+16)
 
 			// Extract variable data
@@ -222,7 +220,6 @@ func (s *Edk2VarStore) GetVarList() (uefi.EfiVarList, error) {
 			data := make([]byte, dsize)
 			copy(data, s.filedata[dataStart:dataStart+int(dsize)])
 
-			// Create EfiVar
 			evar := uefi.NewEfiVar(name, guid, varHeader.Attr, data, varHeader.Count, pk)
 			evar.ParseTime(s.filedata, pos+16)
 

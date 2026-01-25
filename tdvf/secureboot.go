@@ -3,6 +3,7 @@ package tdvf
 import (
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sort"
 
 	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
@@ -36,7 +37,7 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get variable list: %v", err)
 	}
-	fmt.Printf("varlist %v\n", varList)
+	log.Printf("varlist %v\n", varList)
 
 	// Sort variable names for consistent output
 	names := make([]string, 0, len(varList))
@@ -46,16 +47,16 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 	sort.Strings(names)
 
 	// Display variables
-	fmt.Printf("Found %d variables:\n\n", len(varList))
+	log.Printf("Found %d variables:\n\n", len(varList))
 
 	sbVars := &SecureBootVars{}
 
 	for _, name := range names {
 		evar := varList[name]
-		fmt.Printf("Variable: %s\n", name)
-		fmt.Printf("  GUID:       %s\n", edk2.GUIDName(evar.GUID))
-		fmt.Printf("  GUID (raw): %s\n", evar.GUID.String())
-		fmt.Printf("  Attributes: 0x%08x", evar.Attr)
+		log.Printf("Variable: %s\n", name)
+		log.Printf("  GUID:       %s\n", edk2.GUIDName(evar.GUID))
+		log.Printf("  GUID (raw): %s\n", evar.GUID.String())
+		log.Printf("  Attributes: 0x%08x", evar.Attr)
 
 		// Decode attributes
 		attrs := []string{}
@@ -72,7 +73,7 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 			attrs = append(attrs, "AT")
 		}
 		if len(attrs) > 0 {
-			fmt.Printf(" %s", attrs)
+			log.Printf(" %s", attrs)
 		}
 
 		var measurement []byte
@@ -94,18 +95,15 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 			measurement = varData.Measure()
 			sbVars.DBX = measurement
 		}
-		fmt.Println()
 
-		fmt.Printf("  Count:      %d\n", evar.Count)
-		fmt.Printf("  PkIdx:      %d\n", evar.PkIdx)
-		fmt.Printf("  Time:       %s\n", evar.Time.Format("2006-01-02 15:04:05 MST"))
-		fmt.Printf("  Data size:  %d bytes\n", len(evar.Data))
+		log.Printf("  Count:      %d\n", evar.Count)
+		log.Printf("  PkIdx:      %d\n", evar.PkIdx)
+		log.Printf("  Time:       %s\n", evar.Time.Format("2006-01-02 15:04:05 MST"))
+		log.Printf("  Data size:  %d bytes\n", len(evar.Data))
 
 		if measurement != nil {
-			fmt.Printf("  Measurement: %s\n", hex.EncodeToString(measurement))
+			log.Printf("  Measurement: %s\n", hex.EncodeToString(measurement))
 		}
-
-		fmt.Println()
 	}
 
 	return sbVars, nil

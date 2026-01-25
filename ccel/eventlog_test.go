@@ -2,7 +2,7 @@ package ccel
 
 import (
 	"encoding/hex"
-	"fmt"
+	"log"
 	"os"
 	"testing"
 
@@ -28,19 +28,18 @@ func TestEventLog(t *testing.T) {
 	e := el.Parse()
 	assert.Nil(t, e)
 
-	// fmt.Printf("Parse event log %v \n", el.EventLog())
 	for _, fel := range el.EventLog() {
-		fmt.Printf("RTMR: %d, Event Type: %v\n", fel.GetRtmrIndex(), fel.GetEventType())
-		fmt.Printf("Digests:\n")
+		log.Printf("RTMR: %d, Event Type: %v\n", fel.GetRtmrIndex(), fel.GetEventType())
+		log.Printf("Digests:\n")
 		for _, digest := range fel.GetDigests() {
-			fmt.Printf(" %s\n", hex.EncodeToString(digest.Hash))
+			log.Printf(" %s\n", hex.EncodeToString(digest.Hash))
 		}
 		if fel.GetEventType() != tcg.EvEfiVariableDriverConfig {
 			continue
 		}
 		uefiVar, err := uefi.NewUefiVariableDataFromBytes(fel.GetEvent())
 		if err != nil {
-			fmt.Printf("Failed to parse UEFI variable data: %v\n", err)
+			log.Printf("Failed to parse UEFI variable data: %v\n", err)
 			continue
 		}
 		switch uefiVar.Name.String() {
@@ -56,14 +55,14 @@ func TestEventLog(t *testing.T) {
 			assert.Equal(t, EFISecureBootHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
 		}
 
-		fmt.Printf("EFI Variable: %s %s\n", uefiVar.Name.String(), uefiVar.GUID.String())
+		log.Printf("EFI Variable: %s %s\n", uefiVar.Name.String(), uefiVar.GUID.String())
 	}
 
 	replayMap := el.Replay()
 	// iterate replayMap and print hex values
 	for index, algMap := range replayMap {
 		for alg, val := range algMap {
-			fmt.Printf("\nRTMR[%d][%s]: %s\n", index, alg.String(), hex.EncodeToString(val))
+			log.Printf("\nRTMR[%d][%s]: %s\n", index, alg.String(), hex.EncodeToString(val))
 		}
 	}
 

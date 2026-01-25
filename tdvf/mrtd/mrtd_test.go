@@ -2,7 +2,7 @@ package mrtd
 
 import (
 	"encoding/hex"
-	"fmt"
+	"log"
 	"os"
 	"testing"
 
@@ -26,13 +26,13 @@ func TestBuildMRTD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildMRTD failed: %v", err)
 	}
-	fmt.Printf("MRTD Hash: %x\n", hash)
+	log.Printf("MRTD Hash: %x\n", hash)
 	assert.Equal(t, testdataHashDefault, hex.EncodeToString(hash), "MRTD hashes do not match")
 
 	hash, err = BuildMRTD(data, true)
 	if err != nil {
 		t.Fatalf("BuildMRTD failed: %v", err)
 	}
-	fmt.Printf("MRTD Hash Qemu compatible: %x\n", hash)
+	log.Printf("MRTD Hash Qemu compatible: %x\n", hash)
 	assert.Equal(t, testdataHashQemu, hex.EncodeToString(hash), "MRTD hashes do not match")
 }

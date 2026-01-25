@@ -255,8 +255,6 @@ func (sec *TdxMetadataSection) processMrExtendForPage(chunkCount uint32, pageAdd
 // processes a single metadata section.
 // Default spec is to MEM_PAGE_ADD followed by MR.EXTEND per page (4K)
 func (sec *TdxMetadataSection) Process(image *FirmwareImage, buffers *MRTDBuffers, hasher io.Writer) {
-	fmt.Printf("Processing section type: %d \n", sec.Type)
-
 	nrPages := sec.MemoryDataSize / PageSize
 
 	// Process each page: interleaved ADD then EXTEND

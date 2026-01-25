@@ -341,7 +341,7 @@ func (b *EventLogBlob) ParseSpecIdEventLog(start, recNum, rtmr int, eventType tc
 func (b *EventLogBlob) ParseEventLog(start, recNum, rtmr int, eventType tcg.EventType, digestSizes []TcgEfiSpecIdEventAlgorithmSize) (*EventLogParser, int, error) {
 	cnt, idx := b.ParseUint32(start)
 	digests := make([]tcg.Digest, 0)
-	for i := uint32(0); i < cnt; i++ {
+	for range cnt {
 		algId, next := b.ParseUint16(idx)
 		size := findDigestSize(algId, digestSizes)
 		hash, next := b.ParseBytes(next, int(size))
@@ -379,7 +379,7 @@ func (b *EventLogBlob) parseEFISpecIdEvent(start int) (*TcgEfiSpecIdEvent, int, 
 	uintSize, idx := b.ParseUint8(idx)
 	numOfAlgo, idx := b.ParseUint32(idx)
 	digestSizes := make([]TcgEfiSpecIdEventAlgorithmSize, 0)
-	for i := uint32(0); i < numOfAlgo; i++ {
+	for range numOfAlgo {
 		algoId, next := b.ParseUint16(idx)
 		size, next := b.ParseUint16(next)
 		digestSizes = append(digestSizes, TcgEfiSpecIdEventAlgorithmSize{
