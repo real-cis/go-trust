@@ -29,14 +29,14 @@ type EventLogParser struct {
 func (p *EventLogParser) Format(format tcg.EventFormat) FormattedTcgEvent {
 	switch format {
 	case tcg.PCClientFormat:
-		return p.formatTcgPCClient()
+		return p.FormatTcgPCClient()
 	case tcg.CanonicalFormat:
 		return nil
 	}
 	return nil
 }
 
-func (p *EventLogParser) formatTcgPCClient() FormattedTcgEvent {
+func (p *EventLogParser) FormatTcgPCClient() FormattedTcgEvent {
 	if p.EventType == tcg.EvNoAction && p.RecNum == 0 && p.RtmrIndex == 0 {
 		event := &TcgPcClientRtmrEvent{
 			RtmrIndex:     uint32(p.RtmrIndex),
@@ -241,7 +241,7 @@ func ReplayFormatedEventLog(formatedEventLogs []FormattedTcgEvent) map[int]map[t
 	ret := make(map[int]map[tcg.Algorithm][]byte, 0)
 	lg := log.Default()
 	for _, event := range formatedEventLogs {
-		if !isSupportedFormat(event) {
+		if !IsSupportedFormat(event) {
 			lg.Println("event with unknown format. Skip this one...")
 			continue
 		}
@@ -289,7 +289,7 @@ func (l *EventLogger) Replay() map[int]map[tcg.Algorithm][]byte {
 	return ReplayFormatedEventLog(l.tcgEventLogs)
 }
 
-func isSupportedFormat(e FormattedTcgEvent) bool {
+func IsSupportedFormat(e FormattedTcgEvent) bool {
 	switch e.GetFormatType() {
 	case tcg.PCClientFormat:
 		fallthrough
@@ -343,7 +343,7 @@ func (b *EventLogBlob) ParseEventLog(start, recNum, rtmr int, eventType tcg.Even
 	digests := make([]tcg.Digest, 0)
 	for range cnt {
 		algId, next := b.ParseUint16(idx)
-		size := findDigestSize(algId, digestSizes)
+		size := FindDigestSize(algId, digestSizes)
 		hash, next := b.ParseBytes(next, int(size))
 		digests = append(digests, tcg.NewDigest(tcg.Algorithm(algId), hash))
 		idx = next
@@ -361,7 +361,7 @@ func (b *EventLogBlob) ParseEventLog(start, recNum, rtmr int, eventType tcg.Even
 	return event, idx, nil
 }
 
-func findDigestSize(algId uint16, digestSizes []TcgEfiSpecIdEventAlgorithmSize) uint16 {
+func FindDigestSize(algId uint16, digestSizes []TcgEfiSpecIdEventAlgorithmSize) uint16 {
 	for _, elem := range digestSizes {
 		if elem.AlgorithmId == algId {
 			return elem.DigestSize

@@ -41,12 +41,10 @@ type FirmwareImage struct {
 	Data []byte
 }
 
-// NewFirmwareImage creates a new FirmwareImage from raw bytes.
 func NewFirmwareImage(data []byte) *FirmwareImage {
 	return &FirmwareImage{Data: data}
 }
 
-// Size returns the size of the firmware image in bytes.
 func (f *FirmwareImage) Size() int {
 	return len(f.Data)
 }

@@ -10,7 +10,7 @@ import (
 	"gitlab.com/real-cis/cc/go-trust/tdvf/edk2"
 )
 
-// SecureBootVars contains the measurements of UEFI Secure Boot variables.
+// Measurements of UEFI Secure Boot variables.
 type SecureBootVars struct {
 	PK  []byte
 	KEK []byte
@@ -32,21 +32,18 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 		return nil, fmt.Errorf("failed to parse variable store: %v", err)
 	}
 
-	// Get variables
 	varList, err := store.GetVarList()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get variable list: %v", err)
 	}
 	log.Printf("varlist %v\n", varList)
 
-	// Sort variable names for consistent output
 	names := make([]string, 0, len(varList))
 	for name := range varList {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	// Display variables
 	log.Printf("Found %d variables:\n\n", len(varList))
 
 	sbVars := &SecureBootVars{}
