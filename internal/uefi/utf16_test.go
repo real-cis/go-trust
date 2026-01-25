@@ -19,7 +19,7 @@ func TestParseUTF16(t *testing.T) {
 	expected := "Test"
 
 	if got := s.String(); got != expected {
-		t.Errorf("ParseUCS16() = %v, want %v", got, expected)
+		t.Errorf("ParseUTF16() = %v, want %v", got, expected)
 	}
 }
 
@@ -38,6 +38,6 @@ func TestParseUTF16WithOffset(t *testing.T) {
 	expected := "Hi"
 
 	if got := s.String(); got != expected {
-		t.Errorf("ParseUCS16(offset=4) = %v, want %v", got, expected)
+		t.Errorf("ParseUTF16(offset=4) = %v, want %v", got, expected)
 	}
 }

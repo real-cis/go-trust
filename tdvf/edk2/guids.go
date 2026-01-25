@@ -18,16 +18,18 @@ var (
 	GUIDEfiCustomModeEnable        = uuid.MustParse("c076ec0c-7028-4399-a072-71ee5c448b9f")
 	GUIDMicrosoftVendor            = uuid.MustParse("77fa9abd-0359-4d32-bd60-28f4e78f784b")
 	GUIDShim                       = uuid.MustParse("605dab50-e046-4300-abb6-3dd810dd8b23")
+	GUIDLzmaCompress               = uuid.MustParse("ee4e5898-3914-4259-9d6e-dc7bd79403cf")
+	GUIDResetVector                = uuid.MustParse("1ba0062e-c779-4582-8566-336ae8f78f09")
 )
 
 // GUID name mapping
 var guidNameTable = map[uuid.UUID]string{
 	// Firmware volumes
-	GUIDFfs:      "Ffs",
-	GUIDNvData:   "NvData",
-	GUIDAuthVars: "AuthVars",
-	uuid.MustParse("ee4e5898-3914-4259-9d6e-dc7bd79403cf"): "LzmaCompress",
-	uuid.MustParse("1ba0062e-c779-4582-8566-336ae8f78f09"): "ResetVector",
+	GUIDFfs:          "Ffs",
+	GUIDNvData:       "NvData",
+	GUIDAuthVars:     "AuthVars",
+	GUIDLzmaCompress: "LzmaCompress",
+	GUIDResetVector:  "ResetVector",
 
 	// Variable types
 	GUIDEfiGlobalVariable:          "EfiGlobalVariable",
