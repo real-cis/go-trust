@@ -1,0 +1,23 @@
+image: golang:1.25
+
+stages:
+  - test
+
+variables:
+  GO111MODULE: "on"
+
+before_script:
+  - go version
+  - go mod download
+
+test:
+  stage: test
+  script:
+    - go test -v -race -coverprofile=coverage.out ./...
+    - go tool cover -func=coverage.out
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+
+build:
+  stage: test
+  script:
+    - go build ./...
