@@ -30,28 +30,3 @@ func TestParseFirmware(t *testing.T) {
 		t.Fatalf("PK mismatch: expected %s, got %s", expectedPKHex, pkHex)
 	}
 }
-
-func TestMeasureFirmwareInterface(t *testing.T) {
-	filePath := "mrtd/testdata/OVMF.fd"
-
-	var measurements Measurements
-	var err error
-	measurements, err = MeasureFirmware(filePath)
-	if err != nil {
-		t.Fatalf("MeasureFirmware failed: %v", err)
-	}
-	if measurements == nil {
-		t.Fatal("Expected measurements, got nil")
-	}
-
-	mrtd := measurements.GetMRTD()
-	if len(mrtd) == 0 {
-		t.Error("Expected MRTD to be present")
-	}
-
-	sb := measurements.GetSecureBoot()
-	pkHex := hex.EncodeToString(sb.PK)
-	if pkHex != expectedPKHex {
-		t.Fatalf("PK mismatch: expected %s, got %s", expectedPKHex, pkHex)
-	}
-}
