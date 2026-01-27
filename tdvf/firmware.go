@@ -7,14 +7,27 @@ import (
 	"gitlab.com/real-cis/cc/go-trust/tdvf/mrtd"
 )
 
+type Measurements interface {
+	GetMRTD() []byte
+	GetSecureBoot() SecureBootVars
+}
+
 // TDVFMeasurements contains all measurements extracted from a TDVF firmware image.
 type TDVFMeasurements struct {
 	MRTD       []byte
 	SecureBoot SecureBootVars
 }
 
+func (m *TDVFMeasurements) GetMRTD() []byte {
+	return m.MRTD
+}
+
+func (m *TDVFMeasurements) GetSecureBoot() SecureBootVars {
+	return m.SecureBoot
+}
+
 // MeasureFirmware parses a TDVF firmware file and extracts all measurements.
-func MeasureFirmware(filename string) (*TDVFMeasurements, error) {
+func MeasureFirmware(filename string) (Measurements, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
