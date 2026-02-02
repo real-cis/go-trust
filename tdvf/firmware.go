@@ -9,17 +9,23 @@ import (
 
 type Measurements interface {
 	GetMRTD() []byte
+	GetCFV() []byte
 	GetSecureBoot() SecureBootVars
 }
 
 // TDVFMeasurements contains all measurements extracted from a TDVF firmware image.
 type TDVFMeasurements struct {
 	MRTD       []byte
+	CFV        []byte
 	SecureBoot SecureBootVars
 }
 
 func (m *TDVFMeasurements) GetMRTD() []byte {
 	return m.MRTD
+}
+
+func (m *TDVFMeasurements) GetCFV() []byte {
+	return m.CFV
 }
 
 func (m *TDVFMeasurements) GetSecureBoot() SecureBootVars {
@@ -38,13 +44,14 @@ func MeasureFirmware(filename string) (Measurements, error) {
 		return nil, fmt.Errorf("failed to build MRTD: %w", err)
 	}
 
-	sbVars, err := MeasureSecureBootVariables(data)
+	cfvMeasurements, err := MeasureCFV(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to measure secure boot variables: %w", err)
+		return nil, fmt.Errorf("failed to measure CFV: %w", err)
 	}
 
 	return &TDVFMeasurements{
 		MRTD:       mrtdHash,
-		SecureBoot: *sbVars,
+		CFV:        cfvMeasurements.CFV,
+		SecureBoot: cfvMeasurements.SecureBoot,
 	}, nil
 }

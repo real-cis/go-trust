@@ -2,6 +2,7 @@ package edk2
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -28,9 +29,29 @@ const (
 
 // Edk2VarStore represents an EDK2 variable store
 type Edk2VarStore struct {
-	filedata []byte
-	start    int
-	end      int
+	filedata  []byte
+	start     int
+	end       int
+	cfvOffset int
+	cfvLength uint64
+	cfvParsed bool
+}
+
+// computes SHA384 hash of the Configuration Firmware Volume
+func (s *Edk2VarStore) MeasureCFV() []byte {
+	if !s.cfvParsed || s.cfvLength == 0 {
+		return nil
+	}
+
+	cfvEnd := s.cfvOffset + int(s.cfvLength)
+	if cfvEnd > len(s.filedata) {
+		cfvEnd = len(s.filedata)
+	}
+
+	cfvData := s.filedata[s.cfvOffset:cfvEnd]
+
+	hash := sha512.Sum384(cfvData)
+	return hash[:]
 }
 
 func NewEdk2VarStore(data []byte) (*Edk2VarStore, error) {
@@ -129,6 +150,11 @@ func (s *Edk2VarStore) parseVolume() error {
 	if guid != GUIDNvData {
 		return fmt.Errorf("not a variable store (GUID mismatch)")
 	}
+
+	// Store CFV offset and length for measurement
+	s.cfvOffset = offset
+	s.cfvLength = header.Vlen
+	s.cfvParsed = true
 
 	return s.parseVarStore(offset + int(header.Hlen))
 }

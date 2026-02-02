@@ -3,9 +3,6 @@ package ccel
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -257,20 +254,7 @@ func ReplayFormatedEventLog(formatedEventLogs []FormattedTcgEvent) map[int]map[t
 		for _, digest := range event.GetDigests() {
 			var hash hash.Hash
 			alg := digest.AlgID
-			switch alg {
-			case tcg.AlgSHA1:
-				hash = sha1.New()
-			case tcg.AlgSHA384:
-				hash = sha512.New384()
-			case tcg.AlgSHA256:
-				hash = sha256.New()
-			case tcg.AlgSHA512:
-				hash = sha512.New()
-			default:
-				lg.Printf("Unsupported hash algorithm  %v\n", alg)
-				continue
-			}
-
+			hash = alg.NewHash()
 			val := make([]byte, tcg.DigestSizeTable[alg])
 			if b, ok := ret[idx][alg]; !ok {
 				ret[idx][alg] = make([]byte, 0)

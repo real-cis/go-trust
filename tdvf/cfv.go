@@ -18,8 +18,13 @@ type SecureBootVars struct {
 	DBX []byte
 }
 
+type CFVMeasurements struct {
+	CFV        []byte
+	SecureBoot SecureBootVars
+}
+
 // parses and measures secure boot variables from firmware data
-func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
+func MeasureCFV(data []byte) (*CFVMeasurements, error) {
 	// Probe file
 	offset := edk2.FindNvData(data)
 	if offset == -1 {
@@ -30,6 +35,11 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 	store, err := edk2.NewEdk2VarStore(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse variable store: %v", err)
+	}
+
+	cfvHash := store.MeasureCFV()
+	if cfvHash != nil {
+		log.Printf("CFV measurement: %s\n", hex.EncodeToString(cfvHash))
 	}
 
 	varList, err := store.GetVarList()
@@ -46,7 +56,7 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 
 	log.Printf("Found %d variables:\n\n", len(varList))
 
-	sbVars := &SecureBootVars{}
+	sbVars := SecureBootVars{}
 
 	for _, name := range names {
 		evar := varList[name]
@@ -103,5 +113,8 @@ func MeasureSecureBootVariables(data []byte) (*SecureBootVars, error) {
 		}
 	}
 
-	return sbVars, nil
+	return &CFVMeasurements{
+		CFV:        cfvHash,
+		SecureBoot: sbVars,
+	}, nil
 }
