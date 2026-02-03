@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
-	"gitlab.com/real-cis/cc/go-trust/tcg"
+	"gitlab.com/real-cis/cc/go-trust/pkg/tcg"
+	"gitlab.com/real-cis/cc/go-trust/pkg/uefi"
 )
 
 const (

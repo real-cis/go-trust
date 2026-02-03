@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"gitlab.com/real-cis/cc/go-trust/internal/guid"
+	"gitlab.com/real-cis/cc/go-trust/pkg/guid"
 )
 
 // Common GUID constants

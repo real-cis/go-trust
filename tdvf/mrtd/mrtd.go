@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"gitlab.com/real-cis/cc/go-trust/internal/guid"
+	"gitlab.com/real-cis/cc/go-trust/pkg/guid"
 )
 
 // TDX Metadata constants

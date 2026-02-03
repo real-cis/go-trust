@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.com/real-cis/cc/go-trust/tcg"
+	"gitlab.com/real-cis/cc/go-trust/pkg/tcg"
 )
 
 type EventLogParser struct {

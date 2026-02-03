@@ -6,7 +6,7 @@ import (
 	"log"
 	"sort"
 
-	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
+	"gitlab.com/real-cis/cc/go-trust/pkg/uefi"
 	"gitlab.com/real-cis/cc/go-trust/tdvf/edk2"
 )
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	"gitlab.com/real-cis/cc/go-trust/internal/uefi"
+	"gitlab.com/real-cis/cc/go-trust/pkg/uefi"
 )
 
 const (
