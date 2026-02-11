@@ -12,7 +12,7 @@ const (
 
 func TestParseFirmware(t *testing.T) {
 	filePath := "mrtd/testdata/OVMF.fd"
-	measurements, err := MeasureFirmware(filePath)
+	measurements, err := MeasureFirmware(filePath, true)
 	if err != nil {
 		t.Fatalf("ParseFirmware failed: %v", err)
 	}
