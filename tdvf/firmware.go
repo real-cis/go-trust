@@ -39,7 +39,7 @@ func MeasureFirmware(filename string) (Measurements, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	mrtdHash, err := mrtd.BuildMRTD(data, false)
+	mrtdHash, err := mrtd.BuildMRTD(data, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build MRTD: %w", err)
 	}
