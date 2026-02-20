@@ -32,11 +32,26 @@ type BaseClient struct {
 	httpClient *http.Client
 }
 
-func NewBaseClient(config Config) *BaseClient {
-	if config.Timeout == 0 {
-		config.Timeout = 30 * time.Second
+type PCSClient struct {
+	*BaseClient
+}
+
+func NewPCSClient(baseURL string, apiKey string, timeout time.Duration) *PCSClient {
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	baseConfig := Config{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		Timeout: timeout,
 	}
 
+	return &PCSClient{
+		BaseClient: NewBaseClient(baseConfig),
+	}
+}
+
+func NewBaseClient(config Config) *BaseClient {
 	return &BaseClient{
 		config: config,
 		httpClient: &http.Client{

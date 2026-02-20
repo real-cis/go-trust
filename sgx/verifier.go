@@ -21,22 +21,6 @@ var (
 	fmspcOID        = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1, 4}
 )
 
-type PCSClient struct {
-	*BaseClient
-}
-
-func NewPCSClient(baseURL string, apiKey string) *PCSClient {
-	baseConfig := Config{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		Timeout: 10 * time.Second,
-	}
-
-	return &PCSClient{
-		BaseClient: NewBaseClient(baseConfig),
-	}
-}
-
 func (v *PCSClient) Verify(quote *Quote) (*VerificationResult, error) {
 
 	if len(quote.AuthData.CertificationData) == 0 {
