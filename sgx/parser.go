@@ -33,7 +33,7 @@ const (
 	CertDataTypePlatformManifest     = 7
 )
 
-func ParseQuote(data []byte) (*Quote, error) {
+func ParseQuote(data []byte) (*ParsedQuote, error) {
 	if len(data) < 436 {
 		return nil, fmt.Errorf("quote data too short: %d bytes", len(data))
 	}
@@ -47,7 +47,11 @@ func ParseQuote(data []byte) (*Quote, error) {
 		fmt.Printf("Detected Open Enclave evidence format (ego/edgelesssys)\n")
 	}
 
-	return parseRawQuote(quoteData)
+	raw, err := parseRawQuote(quoteData)
+	if err != nil {
+		return nil, err
+	}
+	return &ParsedQuote{Quote: raw}, nil
 }
 
 func unwrapOpenEnclaveEvidence(data []byte) ([]byte, bool, error) {
@@ -128,34 +132,31 @@ func parseSignatureData(data []byte, quote *Quote) error {
 	fmt.Printf("\nDebug: Parsing signature data (%d bytes)\n", len(data))
 
 	// ISV signature 64 bytes - offset 0
-	isvSignature := make([]byte, 64)
+	isvSignature := make([]byte, ecdsaP256SignatureSize)
 	reader.Read(isvSignature)
 	quote.Signature = isvSignature
-	fmt.Printf("Debug: [0] ISV signature (64 bytes), remaining: %d\n", reader.Len())
+	fmt.Printf("Debug: [0] ISV signature %d bytes, remaining: %d\n", ecdsaP256SignatureSize, reader.Len())
 
 	// Attestation key 64 bytes - offset 64
 	// This is the ECDSA P-256 public key (uncompressed format: X || Y)
-	attKey := make([]byte, 64)
+	attKey := make([]byte, ecdsaP256PubKeySize)
 	reader.Read(attKey)
 	quote.AuthData.AttestationKey = attKey
-	fmt.Printf("Debug: [64] Attestation key (64 bytes), remaining: %d\n", reader.Len())
-	fmt.Printf("Debug: Attestation key X: %x\n", attKey[:8])
-	fmt.Printf("Debug: Attestation key Y: %x\n", attKey[32:40])
+	fmt.Printf("Debug: [64] Attestation key %d bytes, remaining: %d\n", ecdsaP256PubKeySize, reader.Len())
 
 	// QE Report 384 bytes - offset 128
 	qeReport := make([]byte, qeReportSize)
 	reader.Read(qeReport)
 	quote.AuthData.QEReport = qeReport
-	fmt.Printf("Debug: [128] QE report (384 bytes), remaining: %d\n", reader.Len())
+	fmt.Printf("Debug: [128] QE report %d bytes, remaining: %d\n", qeReportSize, reader.Len())
 
 	// QE Report Signature (64 bytes) - offset 512
 	qeReportSig := make([]byte, qeReportSignatureSize)
 	reader.Read(qeReportSig)
 	quote.AuthData.QEReportSignature = qeReportSig
-	fmt.Printf("Debug: [512] QE report signature (64 bytes), remaining: %d\n", reader.Len())
+	fmt.Printf("Debug: [512] QE report signature %d bytes, remaining: %d\n", qeReportSignatureSize, reader.Len())
 
 	// Total so far: 64 + 64 + 384 + 64 = 576 bytes
-
 	// QE Auth Data Size (2 bytes)
 	var qeAuthDataSize uint16
 	if err := binary.Read(reader, binary.LittleEndian, &qeAuthDataSize); err != nil {
@@ -200,12 +201,6 @@ func parseSignatureData(data []byte, quote *Quote) error {
 
 		quote.AuthData.CertificationData = certData
 		fmt.Printf("Debug: Successfully extracted certification data (%d bytes)\n", len(certData))
-
-		// Verify it's PEM format
-		if len(certData) > 10 {
-			preview := string(certData[:min(40, len(certData))])
-			fmt.Printf("Debug: Cert data preview: %s...\n", preview)
-		}
 	}
 
 	return nil
@@ -237,24 +232,13 @@ func parseReportBody(reader *bytes.Reader, body *ReportBody) error {
 	binary.Read(reader, binary.LittleEndian, &body.MiscSelect)
 	binary.Read(reader, binary.LittleEndian, &body.Reserved1)
 	binary.Read(reader, binary.LittleEndian, &body.Attributes)
-	binary.Read(reader, binary.LittleEndian, &body.MRENCLAVE)
+	binary.Read(reader, binary.LittleEndian, &body.MrEnclave)
 	binary.Read(reader, binary.LittleEndian, &body.Reserved2)
-	binary.Read(reader, binary.LittleEndian, &body.MRSIGNER)
+	binary.Read(reader, binary.LittleEndian, &body.MrSigner)
 	binary.Read(reader, binary.LittleEndian, &body.Reserved3)
 	binary.Read(reader, binary.LittleEndian, &body.ISVProdID)
 	binary.Read(reader, binary.LittleEndian, &body.ISVSVN)
 	binary.Read(reader, binary.LittleEndian, &body.Reserved4)
 	binary.Read(reader, binary.LittleEndian, &body.ReportData)
 	return nil
-}
-
-func (q *Quote) QuoteTypeString() string {
-	switch q.QuoteType {
-	case QuoteSGX:
-		return "SGX"
-	case QuoteTDX:
-		return "TDX"
-	default:
-		return "Unknown"
-	}
 }

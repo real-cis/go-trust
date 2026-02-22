@@ -8,86 +8,61 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"gitlab.com/real-cis/cc/go-trust/sgx/tcb"
 )
 
 // interface for PCS clients (Intel PCS or local PCCS)
 type Client interface {
-	GetTCBInfo(fmspc string) (*tcb.TCBInfo, error)
-	GetTDXTCBInfo(fmspc string) (*tcb.TCBInfo, error)
+	GetTCBInfo(fmspc string) (*TCBInfo, error)
+	GetTDXTCBInfo(fmspc string) (*TCBInfo, error)
 	GetRootCACRL() ([]byte, error)
 	GetPCKCRL(ca string) ([]byte, error)
 	GetQEIdentity() ([]byte, error)
 }
 
-type Config struct {
-	BaseURL string
-	APIKey  string
-	Timeout time.Duration
-}
-
-type BaseClient struct {
-	config     Config
-	httpClient *http.Client
-}
-
 type PCSClient struct {
-	*BaseClient
+	BaseURL    string
+	APIKey     string
+	httpClient *http.Client
 }
 
 func NewPCSClient(baseURL string, apiKey string, timeout time.Duration) *PCSClient {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	baseConfig := Config{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		Timeout: timeout,
-	}
 
 	return &PCSClient{
-		BaseClient: NewBaseClient(baseConfig),
-	}
-}
-
-func NewBaseClient(config Config) *BaseClient {
-	return &BaseClient{
-		config: config,
+		BaseURL: baseURL,
+		APIKey:  apiKey,
 		httpClient: &http.Client{
-			Timeout: config.Timeout,
+			Timeout: timeout,
 		},
 	}
 }
 
-func (c *BaseClient) Config() Config {
-	return c.config
-}
-
-func (c *BaseClient) HTTPClient() *http.Client {
+func (c *PCSClient) HTTPClient() *http.Client {
 	return c.httpClient
 }
 
 // retrieves SGX TCB information for a given FMSPC
-func (c *BaseClient) GetTCBInfo(fmspc string) (*tcb.TCBInfo, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/tcb?fmspc=%s", c.config.BaseURL, url.QueryEscape(fmspc))
+func (c *PCSClient) GetTCBInfo(fmspc string) (*TCBInfo, error) {
+	u := fmt.Sprintf("%s/sgx/certification/v4/tcb?fmspc=%s", c.BaseURL, url.QueryEscape(fmspc))
 	return c.fetchTCBInfo(u)
 }
 
 // retrieves TDX TCB information for a given FMSPC
-func (c *BaseClient) GetTDXTCBInfo(fmspc string) (*tcb.TCBInfo, error) {
-	u := fmt.Sprintf("%s/tdx/certification/v4/tcb?fmspc=%s", c.config.BaseURL, url.QueryEscape(fmspc))
+func (c *PCSClient) GetTDXTCBInfo(fmspc string) (*TCBInfo, error) {
+	u := fmt.Sprintf("%s/tdx/certification/v4/tcb?fmspc=%s", c.BaseURL, url.QueryEscape(fmspc))
 	return c.fetchTCBInfo(u)
 }
 
-func (c *BaseClient) fetchTCBInfo(url string) (*tcb.TCBInfo, error) {
+func (c *PCSClient) fetchTCBInfo(url string) (*TCBInfo, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if c.config.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.config.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -101,7 +76,7 @@ func (c *BaseClient) fetchTCBInfo(url string) (*tcb.TCBInfo, error) {
 		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var tcbInfoWrapper tcb.TCBInfoWrapper
+	var tcbInfoWrapper TCBInfoWrapper
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
@@ -114,16 +89,16 @@ func (c *BaseClient) fetchTCBInfo(url string) (*tcb.TCBInfo, error) {
 	return &tcbInfoWrapper.TCBInfo, nil
 }
 
-func (c *BaseClient) GetRootCACRL() ([]byte, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/rootcacrl", c.config.BaseURL)
+func (c *PCSClient) GetRootCACRL() ([]byte, error) {
+	u := fmt.Sprintf("%s/sgx/certification/v4/rootcacrl", c.BaseURL)
 
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if c.config.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.config.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -145,8 +120,8 @@ func (c *BaseClient) GetRootCACRL() ([]byte, error) {
 	return crl, nil
 }
 
-func (c *BaseClient) GetPCKCRL(ca string) ([]byte, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/pckcrl", c.config.BaseURL)
+func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
+	u := fmt.Sprintf("%s/sgx/certification/v4/pckcrl", c.BaseURL)
 	if ca != "" {
 		u = fmt.Sprintf("%s?ca=%s", u, url.QueryEscape(ca))
 	}
@@ -156,8 +131,8 @@ func (c *BaseClient) GetPCKCRL(ca string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if c.config.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.config.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -180,16 +155,16 @@ func (c *BaseClient) GetPCKCRL(ca string) ([]byte, error) {
 }
 
 // retrieves the Quoting Enclave identity
-func (c *BaseClient) GetQEIdentity() ([]byte, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/qe/identity", c.config.BaseURL)
+func (c *PCSClient) GetQEIdentity() ([]byte, error) {
+	u := fmt.Sprintf("%s/sgx/certification/v4/qe/identity", c.BaseURL)
 
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if c.config.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.config.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -212,16 +187,16 @@ func (c *BaseClient) GetQEIdentity() ([]byte, error) {
 }
 
 // GetQVEIdentity retrieves the Quote Verification Enclave identity
-func (c *BaseClient) GetQVEIdentity() ([]byte, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/qve/identity", c.config.BaseURL)
+func (c *PCSClient) GetQVEIdentity() ([]byte, error) {
+	u := fmt.Sprintf("%s/sgx/certification/v4/qve/identity", c.BaseURL)
 
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if c.config.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.config.APIKey)
+	if c.APIKey != "" {
+		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -243,7 +218,6 @@ func (c *BaseClient) GetQVEIdentity() ([]byte, error) {
 	return identity, nil
 }
 
-// CertificateChain represents the certificate chain
 type CertificateChain struct {
 	RootCA         *x509.Certificate
 	IntermediateCA *x509.Certificate

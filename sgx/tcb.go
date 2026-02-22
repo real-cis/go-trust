@@ -42,7 +42,7 @@ type TCBComponent struct {
 
 // evaluateTCBLevel iterates through tcbInfo levels (newest first) and returns
 // the status and advisory IDs of the first level whose SVN requirements are all
-// met by cpusvn/pcesvn.  Returns "Revoked" when no level matches.
+// met by cpusvn/pcesvn.
 func (tcb *TCBInfo) evaluateTCBLevel(cpusvn [16]byte, pcesvn int) (string, []string) {
 	fmt.Printf("\n=== TCB Matching Algorithm (Intel PCS/ECDSA-P256-SHA256) ===\n")
 	fmt.Printf("Quote Platform SVNs: %v\n", cpusvn[:])
