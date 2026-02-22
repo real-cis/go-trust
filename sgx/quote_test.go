@@ -110,10 +110,7 @@ func TestParseQuote(t *testing.T) {
 				t.Fatalf("ParseQuote: %v", err)
 			}
 
-			if q.QuoteType != QuoteSGX {
-				t.Errorf("QuoteType = %v, want QuoteSGX", q.QuoteType)
-			}
-			if q.Version != QuoteVersion3 {
+			if !q.IsSGX() {
 				t.Errorf("Version = %d, want %d", q.Version, QuoteVersion3)
 			}
 

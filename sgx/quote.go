@@ -19,16 +19,7 @@ type Quote struct {
 	ReportBody ReportBody
 	Signature  []byte
 	AuthData   AuthenticationData
-	QuoteType  QuoteType // SGX or TDX
 }
-
-// QuoteType indicates whether this is an SGX or TDX quote.
-type QuoteType int
-
-const (
-	QuoteSGX QuoteType = iota
-	QuoteTDX
-)
 
 // ReportBody contains the SGX/TDX report body.
 type ReportBody struct {
@@ -68,26 +59,14 @@ type ParsedQuote struct {
 	fmspcErr  error
 }
 
-func (q *ParsedQuote) IsSGX() bool { return q.QuoteType == QuoteSGX }
+func (q *ParsedQuote) IsSGX() bool { return q.Version == QuoteVersion3 }
 
-func (q *ParsedQuote) IsTDX() bool { return q.QuoteType == QuoteTDX }
-
-func (q *ParsedQuote) QuoteTypeString() string {
-	switch q.QuoteType {
-	case QuoteSGX:
-		return "SGX"
-	case QuoteTDX:
-		return "TDX"
-	default:
-		return "Unknown"
-	}
-}
+func (q *ParsedQuote) IsTDX() bool { return q.Version == QuoteVersion4 }
 
 type VerificationResult struct {
 	TCBLevel    string   // UpToDate, OutOfDate, ConfigurationNeeded, etc.
 	AdvisoryIDs []string // List of security advisory IDs
 	Timestamp   time.Time
-	QuoteType   QuoteType
 }
 
 type QuoteVerifier struct {
@@ -172,6 +151,5 @@ func (v *QuoteVerifier) Verify() (*VerificationResult, error) {
 		TCBLevel:    status,
 		AdvisoryIDs: advisories,
 		Timestamp:   time.Now(),
-		QuoteType:   q.QuoteType,
 	}, nil
 }

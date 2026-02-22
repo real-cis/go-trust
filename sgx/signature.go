@@ -94,7 +94,7 @@ func serializeQuoteHeader(q *Quote) []byte {
 	// Reserved field 4 bytes – TEE type is encoded here.
 	// For SGX: 0x00000000, For TDX: 0x00000081.
 	teeType := uint32(0)
-	if q.QuoteType == QuoteTDX {
+	if q.Version == QuoteVersion4 {
 		teeType = 0x81
 	}
 	result = append(result, byte(teeType), byte(teeType>>8), byte(teeType>>16), byte(teeType>>24))

@@ -85,15 +85,6 @@ func parseRawQuote(data []byte) (*Quote, error) {
 	// Header 48 bytes
 	binary.Read(reader, binary.LittleEndian, &quote.Version)
 
-	switch quote.Version {
-	case QuoteVersion3:
-		quote.QuoteType = QuoteSGX
-	case QuoteVersion4:
-		quote.QuoteType = QuoteTDX
-	default:
-		return nil, fmt.Errorf("unsupported quote version: %d", quote.Version)
-	}
-
 	binary.Read(reader, binary.LittleEndian, &quote.SignType)
 
 	var reserved [4]byte
