@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 )
 
 const (
@@ -44,7 +45,7 @@ func ParseQuote(data []byte) (*ParsedQuote, error) {
 	}
 
 	if isOEFormat {
-		fmt.Printf("Detected Open Enclave evidence format (ego/edgelesssys)\n")
+		slog.Debug("detected Open Enclave evidence format")
 	}
 
 	raw, err := parseRawQuote(quoteData)
@@ -105,7 +106,7 @@ func parseRawQuote(data []byte) (*Quote, error) {
 	var signDataLen uint32
 	binary.Read(reader, binary.LittleEndian, &signDataLen)
 
-	fmt.Printf("Debug: Signature data length: %d bytes\n", signDataLen)
+	slog.Debug("signature data length", "bytes", signDataLen)
 
 	signatureDataBuf := make([]byte, signDataLen)
 	reader.Read(signatureDataBuf)
@@ -120,32 +121,32 @@ func parseRawQuote(data []byte) (*Quote, error) {
 func parseSignatureData(data []byte, quote *Quote) error {
 	reader := bytes.NewReader(data)
 
-	fmt.Printf("\nDebug: Parsing signature data (%d bytes)\n", len(data))
+	slog.Debug("parsing signature data", "bytes", len(data))
 
 	// ISV signature 64 bytes - offset 0
 	isvSignature := make([]byte, ecdsaP256SignatureSize)
 	reader.Read(isvSignature)
 	quote.Signature = isvSignature
-	fmt.Printf("Debug: [0] ISV signature %d bytes, remaining: %d\n", ecdsaP256SignatureSize, reader.Len())
+	slog.Debug("read ISV signature", "offset", 0, "size", ecdsaP256SignatureSize, "remaining", reader.Len())
 
 	// Attestation key 64 bytes - offset 64
 	// This is the ECDSA P-256 public key (uncompressed format: X || Y)
 	attKey := make([]byte, ecdsaP256PubKeySize)
 	reader.Read(attKey)
 	quote.AuthData.AttestationKey = attKey
-	fmt.Printf("Debug: [64] Attestation key %d bytes, remaining: %d\n", ecdsaP256PubKeySize, reader.Len())
+	slog.Debug("read attestation key", "offset", 64, "size", ecdsaP256PubKeySize, "remaining", reader.Len())
 
 	// QE Report 384 bytes - offset 128
 	qeReport := make([]byte, qeReportSize)
 	reader.Read(qeReport)
 	quote.AuthData.QEReport = qeReport
-	fmt.Printf("Debug: [128] QE report %d bytes, remaining: %d\n", qeReportSize, reader.Len())
+	slog.Debug("read QE report", "offset", 128, "size", qeReportSize, "remaining", reader.Len())
 
 	// QE Report Signature (64 bytes) - offset 512
 	qeReportSig := make([]byte, qeReportSignatureSize)
 	reader.Read(qeReportSig)
 	quote.AuthData.QEReportSignature = qeReportSig
-	fmt.Printf("Debug: [512] QE report signature %d bytes, remaining: %d\n", qeReportSignatureSize, reader.Len())
+	slog.Debug("read QE report signature", "offset", 512, "size", qeReportSignatureSize, "remaining", reader.Len())
 
 	// Total so far: 64 + 64 + 384 + 64 = 576 bytes
 	// QE Auth Data Size (2 bytes)
@@ -153,7 +154,7 @@ func parseSignatureData(data []byte, quote *Quote) error {
 	if err := binary.Read(reader, binary.LittleEndian, &qeAuthDataSize); err != nil {
 		return fmt.Errorf("failed to read QE auth data size: %w", err)
 	}
-	fmt.Printf("Debug: [576] QE auth data size: %d bytes\n", qeAuthDataSize)
+	slog.Debug("QE auth data size", "offset", 576, "size", qeAuthDataSize)
 
 	// QE Auth Data
 	if qeAuthDataSize > 0 {
@@ -164,8 +165,7 @@ func parseSignatureData(data []byte, quote *Quote) error {
 		qeAuthData := make([]byte, qeAuthDataSize)
 		reader.Read(qeAuthData)
 		quote.AuthData.QEAuthData = qeAuthData
-		fmt.Printf("Debug: [578] Read QE auth data (%d bytes), remaining: %d\n", len(qeAuthData), reader.Len())
-		fmt.Printf("Debug: First 16 bytes of QE auth data: %x\n", qeAuthData[:min(16, len(qeAuthData))])
+		slog.Debug("read QE auth data", "offset", 578, "size", len(qeAuthData), "remaining", reader.Len(), "first16", qeAuthData[:min(16, len(qeAuthData))])
 	}
 
 	var certDataType uint16
@@ -178,8 +178,7 @@ func parseSignatureData(data []byte, quote *Quote) error {
 		return fmt.Errorf("failed to read cert data size: %w", err)
 	}
 
-	fmt.Printf("Debug: [%d] Cert data type: %d (%s), size: %d bytes\n",
-		578+qeAuthDataSize, certDataType, certDataTypeName(certDataType), certDataSize)
+	slog.Debug("cert data header", "offset", 578+qeAuthDataSize, "type", certDataType, "typeName", certDataTypeName(certDataType), "size", certDataSize)
 
 	// Cert Data (PEM certificates)
 	if certDataSize > 0 {
@@ -191,7 +190,7 @@ func parseSignatureData(data []byte, quote *Quote) error {
 		reader.Read(certData)
 
 		quote.AuthData.CertificationData = certData
-		fmt.Printf("Debug: Successfully extracted certification data (%d bytes)\n", len(certData))
+		slog.Debug("extracted certification data", "bytes", len(certData))
 	}
 
 	return nil

@@ -1,11 +1,11 @@
 package sgx
 
 import (
+	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
-
-	"crypto/x509"
 )
 
 // Quote holds the raw decoded fields of a DCAP SGX/TDX quote.
@@ -94,21 +94,21 @@ func (v *QuoteVerifier) Verify() (*VerificationResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract FMSPC: %w", err)
 	}
-	fmt.Printf("Extracted FMSPC: %s\n", fmspc)
+	slog.Debug("extracted FMSPC", "fmspc", fmspc)
 
 	// 2. Fetch TCB info from the service.
 	var tcbInfo *TCBInfo
 	if q.IsTDX() {
-		fmt.Printf("Fetching TDX TCB info...\n")
+		slog.Debug("fetching TDX TCB info")
 		tcbInfo, err = client.GetTDXTCBInfo(fmspc)
 	} else {
-		fmt.Printf("Fetching SGX TCB info...\n")
+		slog.Debug("fetching SGX TCB info")
 		tcbInfo, err = client.GetTCBInfo(fmspc)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TCB info: %w", err)
 	}
-	fmt.Printf("TCB info retrieved: issueDate=%s levels=%d\n", tcbInfo.IssueDate, len(tcbInfo.TCBLevels))
+	slog.Debug("TCB info retrieved", "issueDate", tcbInfo.IssueDate, "levels", len(tcbInfo.TCBLevels))
 
 	// 3. Extract and verify certificate chain.
 	chain, err := q.CertChain()
@@ -116,35 +116,35 @@ func (v *QuoteVerifier) Verify() (*VerificationResult, error) {
 		return nil, fmt.Errorf("failed to extract certificate chain: %w", err)
 	}
 
-	fmt.Printf("Fetching CRLs for revocation checking...\n")
+	slog.Debug("fetching CRLs for revocation checking")
 	rootCRL, err := client.GetRootCACRL()
 	if err != nil {
-		fmt.Printf("Warning: failed to get root CA CRL: %v\n", err)
+		slog.Warn("failed to get root CA CRL", "err", err)
 	}
 	pckCRL, err := client.GetPCKCRL("processor")
 	if err != nil {
-		fmt.Printf("Warning: failed to get PCK CRL: %v\n", err)
+		slog.Warn("failed to get PCK CRL", "err", err)
 	}
 
-	fmt.Printf("Verifying certificate chain...\n")
+	slog.Debug("verifying certificate chain")
 	if err := verifyCertChain(chain[0], chain[1:], rootCRL, pckCRL); err != nil {
 		return nil, fmt.Errorf("certificate chain verification failed: %w", err)
 	}
 
 	// 4. Verify quote signature.
-	fmt.Printf("Verifying quote signature...\n")
+	slog.Debug("verifying quote signature")
 	if err := q.VerifySignature(); err != nil {
 		return nil, fmt.Errorf("signature verification failed: %w", err)
 	}
 
 	// 5. Verify QE Report data binding.
-	fmt.Printf("Verifying QE report data binding...\n")
+	slog.Debug("verifying QE report data binding")
 	if err := q.VerifyQEReportData(); err != nil {
 		return nil, fmt.Errorf("QE report data verification failed: %w", err)
 	}
 
 	// 6. Evaluate TCB level.
-	fmt.Printf("Evaluating TCB level...\n")
+	slog.Debug("evaluating TCB level")
 	status, advisories := tcbInfo.evaluateTCBLevel(q.ReportBody.CPUSVN, int(q.PCESVN))
 
 	return &VerificationResult{

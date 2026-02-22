@@ -1,7 +1,7 @@
 package sgx
 
 import (
-	"fmt"
+	"log/slog"
 )
 
 type TCBInfoWrapper struct {
@@ -44,48 +44,40 @@ type TCBComponent struct {
 // the status and advisory IDs of the first level whose SVN requirements are all
 // met by cpusvn/pcesvn.
 func (tcb *TCBInfo) evaluateTCBLevel(cpusvn [16]byte, pcesvn int) (string, []string) {
-	fmt.Printf("\n=== TCB Matching Algorithm (Intel PCS/ECDSA-P256-SHA256) ===\n")
-	fmt.Printf("Quote Platform SVNs: %v\n", cpusvn[:])
-	fmt.Printf("Quote PCESVN: %d\n", pcesvn)
-	fmt.Printf("Total TCB Levels to evaluate: %d\n\n", len(tcb.TCBLevels))
+	slog.Debug("TCB matching starting", "cpusvn", cpusvn[:], "pcesvn", pcesvn, "levels", len(tcb.TCBLevels))
 
 	for levelIndex, level := range tcb.TCBLevels {
-		fmt.Printf("Evaluating TCB level %d (status: %s)...\n", levelIndex, level.TCBStatus)
+		slog.Debug("evaluating TCB level", "index", levelIndex, "status", level.TCBStatus)
 
 		matched := true
 		for i := 0; i < 16; i++ {
 			tcbSVN := level.TCB.SGXTCBComponents[i].SVN
 			quoteSVN := int(cpusvn[i])
-			fmt.Printf("  Component %d [%s]: quote SVN=%d, TCB SVN=%d", i, getSGXComponentName(i), quoteSVN, tcbSVN)
 			if quoteSVN < tcbSVN {
-				fmt.Printf(" FAIL (quote SVN too low)\n")
+				slog.Debug("component SVN too low", "component", i, "name", getSGXComponentName(i), "quoteSVN", quoteSVN, "tcbSVN", tcbSVN)
 				matched = false
 				break
 			}
-			fmt.Printf(" OK\n")
+			slog.Debug("component SVN OK", "component", i, "name", getSGXComponentName(i), "quoteSVN", quoteSVN, "tcbSVN", tcbSVN)
 		}
 
 		if matched {
 			tcbPCESVN := level.TCB.PCESVN
-			fmt.Printf("  PCESVN: quote=%d, TCB=%d", pcesvn, tcbPCESVN)
 			if pcesvn < tcbPCESVN {
-				fmt.Printf(" FAIL (quote PCESVN too low)\n")
+				slog.Debug("PCESVN too low", "quotePCESVN", pcesvn, "tcbPCESVN", tcbPCESVN)
 				matched = false
 			} else {
-				fmt.Printf(" OK\n")
+				slog.Debug("PCESVN OK", "quotePCESVN", pcesvn, "tcbPCESVN", tcbPCESVN)
 			}
 		}
 
 		if matched {
-			fmt.Printf("Matched TCB level %d: %s\n", levelIndex, level.TCBStatus)
-			if len(level.AdvisoryIDs) > 0 {
-				fmt.Printf("  Advisory IDs: %v\n", level.AdvisoryIDs)
-			}
+			slog.Debug("matched TCB level", "index", levelIndex, "status", level.TCBStatus, "advisoryIDs", level.AdvisoryIDs)
 			return level.TCBStatus, level.AdvisoryIDs
 		}
 	}
 
-	fmt.Printf("No TCB level matched - platform may be revoked\n")
+	slog.Debug("no TCB level matched, platform may be revoked")
 	return "Revoked", []string{}
 }
 

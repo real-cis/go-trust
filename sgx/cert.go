@@ -5,6 +5,7 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -33,8 +34,7 @@ func (q *ParsedQuote) PCKCert() (*x509.Certificate, error) {
 	return chain[0], nil
 }
 
-// FMSPC extracts the 6-byte FMSPC value (formatted as uppercase hex) from the
-// SGX extension in the PCK leaf certificate.  The result is cached.
+// FMSPC extracts the 6-byte FMSPC value from the SGX extension in the PCK leaf certificate.
 func (q *ParsedQuote) FMSPC() (string, error) {
 	q.fmspcOnce.Do(func() {
 		q.fmspcVal, q.fmspcErr = q.extractFMSPC()
@@ -126,7 +126,7 @@ func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificat
 		return fmt.Errorf("PCK certificate is not valid at current time")
 	}
 
-	fmt.Printf("PCK certificate is valid (expires: %s)\n", pckCert.NotAfter.Format(time.RFC3339))
+	slog.Debug("PCK certificate is valid", "expires", pckCert.NotAfter.Format(time.RFC3339))
 
 	rootPool := x509.NewCertPool()
 	rootPool.AddCert(intelSGXRootCA())
@@ -134,7 +134,7 @@ func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificat
 	intermediatePool := x509.NewCertPool()
 	for _, c := range intermediates {
 		intermediatePool.AddCert(c)
-		fmt.Printf("Added intermediate CA: %s\n", c.Subject.CommonName)
+		slog.Debug("added intermediate CA", "commonName", c.Subject.CommonName)
 	}
 
 	opts := x509.VerifyOptions{
@@ -147,7 +147,7 @@ func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificat
 	if err != nil {
 		return fmt.Errorf("certificate chain verification failed: %w", err)
 	}
-	fmt.Printf("Certificate chain verified (chain length: %d)\n", len(chains[0]))
+	slog.Debug("certificate chain verified", "chainLength", len(chains[0]))
 
 	// TODO: Check CRLs for revocation.
 	return nil
