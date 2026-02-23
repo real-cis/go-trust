@@ -115,7 +115,6 @@ func parseCertChain(certData []byte) ([]*x509.Certificate, error) {
 
 // verifyCertChain verifies that pckCert chains up to the Intel SGX Root CA
 // through the provided intermediates.
-// rootCRL and pckCRL are reserved for future revocation checking.
 func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificate, rootCRL, pckCRL []byte) error {
 	if pckCert == nil {
 		return fmt.Errorf("PCK certificate is nil")
@@ -149,7 +148,57 @@ func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificat
 	}
 	slog.Debug("certificate chain verified", "chainLength", len(chains[0]))
 
-	// TODO: Check CRLs for revocation.
+	// Check CRLs for revocation.
+	if len(rootCRL) > 0 && len(pckCRL) > 0 {
+		fmt.Printf("Checking CRLs: root CRL size %d bytes, PCK CRL size %d bytes\n", len(rootCRL), len(pckCRL))
+		now := time.Now()
+
+		parsedRootCRL, err := x509.ParseRevocationList(rootCRL)
+		if err != nil {
+			return fmt.Errorf("failed to parse root CRL: %w", err)
+		}
+		if err := parsedRootCRL.CheckSignatureFrom(intelSGXRootCA()); err != nil {
+			return fmt.Errorf("root CRL signature invalid: %w", err)
+		}
+		if now.After(parsedRootCRL.NextUpdate) {
+			return fmt.Errorf("root CRL has expired at %s", parsedRootCRL.NextUpdate)
+		}
+
+		parsedPCKCRL, err := x509.ParseRevocationList(pckCRL)
+		if err != nil {
+			return fmt.Errorf("failed to parse PCK CRL: %w", err)
+		}
+		if len(intermediates) == 0 {
+			return fmt.Errorf("no intermediate CA to verify PCK CRL signature")
+		}
+		if err := parsedPCKCRL.CheckSignatureFrom(intermediates[0]); err != nil {
+			return fmt.Errorf("PCK CRL signature invalid: %w", err)
+		}
+		if now.After(parsedPCKCRL.NextUpdate) {
+			return fmt.Errorf("PCK CRL has expired at %s", parsedPCKCRL.NextUpdate)
+		}
+
+		// Check intermediates against root CRL
+		for _, ic := range intermediates {
+			if err := checkRevocation(parsedRootCRL, ic); err != nil {
+				return err
+			}
+		}
+		// Check PCK leaf cert against PCK CRL
+		if err := checkRevocation(parsedPCKCRL, pckCert); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkRevocation(crl *x509.RevocationList, cert *x509.Certificate) error {
+	for _, entry := range crl.RevokedCertificateEntries {
+		if entry.SerialNumber.Cmp(cert.SerialNumber) == 0 {
+			return fmt.Errorf("certificate %s (serial %s) has been revoked",
+				cert.Subject.CommonName, cert.SerialNumber)
+		}
+	}
 	return nil
 }
 

@@ -1,7 +1,9 @@
 package sgx
 
 import (
+	"bytes"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -117,7 +119,13 @@ func (c *PCSClient) GetRootCACRL() ([]byte, error) {
 		return nil, fmt.Errorf("failed to read CRL: %w", err)
 	}
 
-	return crl, nil
+	decoded := make([]byte, hex.DecodedLen(len(crl)))
+	n, err := hex.Decode(decoded, bytes.TrimSpace(crl))
+	if err != nil {
+		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
+	}
+	fmt.Printf("Decoded CRL size: %d bytes\n", n)
+	return decoded[:n], nil
 }
 
 func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
@@ -151,7 +159,13 @@ func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read CRL: %w", err)
 	}
 
-	return crl, nil
+	decoded := make([]byte, hex.DecodedLen(len(crl)))
+	n, err := hex.Decode(decoded, bytes.TrimSpace(crl))
+	if err != nil {
+		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
+	}
+	fmt.Printf("Decoded CRL size: %d bytes\n", n)
+	return decoded[:n], nil
 }
 
 // retrieves the Quoting Enclave identity

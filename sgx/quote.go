@@ -122,7 +122,7 @@ func (v *QuoteVerifier) Verify() (*VerifiedQuote, error) {
 	if err != nil {
 		slog.Warn("failed to get root CA CRL", "err", err)
 	}
-	pckCRL, err := client.GetPCKCRL("processor")
+	pckCRL, err := client.GetPCKCRL("platform")
 	if err != nil {
 		slog.Warn("failed to get PCK CRL", "err", err)
 	}
