@@ -63,7 +63,8 @@ func (q *ParsedQuote) IsSGX() bool { return q.Version == QuoteVersion3 }
 
 func (q *ParsedQuote) IsTDX() bool { return q.Version == QuoteVersion4 }
 
-type VerificationResult struct {
+type VerifiedQuote struct {
+	Quote       *Quote
 	TCBLevel    string   // UpToDate, OutOfDate, ConfigurationNeeded, etc.
 	AdvisoryIDs []string // List of security advisory IDs
 	Timestamp   time.Time
@@ -81,7 +82,7 @@ type QuoteVerifier struct {
 //  4. verifies the quote's ECDSA signature, and
 //  5. Verify QE Report data binding.
 //  6. evaluates the platform's TCB level.
-func (v *QuoteVerifier) Verify() (*VerificationResult, error) {
+func (v *QuoteVerifier) Verify() (*VerifiedQuote, error) {
 	q := v.Quote
 	client := v.Client
 
@@ -147,9 +148,24 @@ func (v *QuoteVerifier) Verify() (*VerificationResult, error) {
 	slog.Debug("evaluating TCB level")
 	status, advisories := tcbInfo.evaluateTCBLevel(q.ReportBody.CPUSVN, int(q.PCESVN))
 
-	return &VerificationResult{
+	return &VerifiedQuote{
+		Quote:       q.Quote,
 		TCBLevel:    status,
 		AdvisoryIDs: advisories,
 		Timestamp:   time.Now(),
 	}, nil
+}
+
+// Convenience method
+func VerifyQuoteWithPCCS(quoteData []byte, pccsUrl string) (*VerifiedQuote, error) {
+	quote, err := ParseQuote(quoteData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse quote: %w", err)
+	}
+	client := NewPCSClient(
+		pccsUrl,
+		"",
+		10*time.Second,
+	)
+	return (&QuoteVerifier{Quote: quote, Client: client}).Verify()
 }
