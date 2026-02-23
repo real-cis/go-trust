@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"math/big"
 )
 
@@ -31,10 +32,10 @@ func (q *ParsedQuote) VerifySignature() error {
 	}
 
 	signed := q.SignedBytes()
-	fmt.Printf("Signed data length: %d bytes (header: 48, body: 384)\n", len(signed))
+	slog.Debug("signed data", "length", len(signed))
 
 	hash := sha256.Sum256(signed)
-	fmt.Printf("Data hash: %x\n", hash[:8])
+	slog.Debug("data hash", "prefix", hash[:8])
 
 	if len(q.Signature) < 64 {
 		return fmt.Errorf("signature data too short: %d bytes (expected 64)", len(q.Signature))
@@ -46,7 +47,7 @@ func (q *ParsedQuote) VerifySignature() error {
 	if !ecdsa.Verify(pubKey, hash[:], r, s) {
 		return fmt.Errorf("ECDSA signature verification failed - signature does not match data hash")
 	}
-	fmt.Printf("ECDSA signature verified successfully using Attestation Key\n")
+	slog.Debug("ECDSA signature verified")
 
 	return nil
 }
@@ -62,8 +63,7 @@ func (q *ParsedQuote) VerifyQEReportData() error {
 
 	input := append(q.AuthData.AttestationKey, q.AuthData.QEAuthData...)
 	expected := sha256.Sum256(input)
-	fmt.Printf("Expected QE report data (hash of att key + QE auth data): %x\n", expected[:8])
-	fmt.Printf("QE report ReportData[0:8]: %x\n", qeReportData[:8])
+	slog.Debug("QE report data check", "expected", expected[:8], "actual", qeReportData[:8])
 
 	if !bytes.Equal(expected[:], qeReportData[:32]) {
 		return fmt.Errorf("QE report data mismatch: attestation key binding check failed")

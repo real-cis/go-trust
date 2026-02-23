@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -124,7 +125,7 @@ func (c *PCSClient) GetRootCACRL() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
 	}
-	fmt.Printf("Decoded CRL size: %d bytes\n", n)
+	slog.Debug("decoded root CA CRL", "size", n)
 	return decoded[:n], nil
 }
 
@@ -164,7 +165,7 @@ func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
 	}
-	fmt.Printf("Decoded CRL size: %d bytes\n", n)
+	slog.Debug("decoded PCK CRL", "size", n)
 	return decoded[:n], nil
 }
 

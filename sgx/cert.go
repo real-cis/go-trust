@@ -150,7 +150,7 @@ func verifyCertChain(pckCert *x509.Certificate, intermediates []*x509.Certificat
 
 	// Check CRLs for revocation.
 	if len(rootCRL) > 0 && len(pckCRL) > 0 {
-		fmt.Printf("Checking CRLs: root CRL size %d bytes, PCK CRL size %d bytes\n", len(rootCRL), len(pckCRL))
+		slog.Debug("checking CRLs", "rootCRLSize", len(rootCRL), "pckCRLSize", len(pckCRL))
 		now := time.Now()
 
 		parsedRootCRL, err := x509.ParseRevocationList(rootCRL)
