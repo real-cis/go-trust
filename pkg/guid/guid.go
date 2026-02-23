@@ -1,3 +1,6 @@
+// Copyright 2026 real-cis GmbH
+// SPDX-License-Identifier: MIT
+
 // Package guid provides unified GUID handling for TDX and UEFI formats.
 package guid
 

@@ -1,3 +1,6 @@
+// Copyright 2026 real-cis GmbH
+// SPDX-License-Identifier: MIT
+
 package tcg
 
 // Digest represents a TCG digest with its algorithm identifier.

@@ -1,3 +1,6 @@
+// Copyright 2026 real-cis GmbH
+// SPDX-License-Identifier: MIT
+
 package tcg
 
 // EventFormat represents the format of TCG event logs.

@@ -8,7 +8,10 @@ Go library for Intel TDX trust and attestation, with packages to parse eventlog,
 
 * tdvf - Measure TD Virtual Firmware (TDVF) images. Build MRTD values and extract Secure Boot variable measurements from firmware binaries.
 
-* tdx - Generate and parse TDX quotes for attestation.
+* sgx - parses and verifies for tcb status for V3 SGX quotes.
+
+* tdx - Generate and parse TDX quotes for attestation.(uses go-tdx-guest lib from Google)
+
 
 ## Usage
 

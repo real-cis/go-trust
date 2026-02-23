@@ -1,3 +1,6 @@
+// Copyright 2026 real-cis GmbH
+// SPDX-License-Identifier: MIT
+
 // Package tcg provides common TCG (Trusted Computing Group) types and constantspackage tcg
 // Ref: https://trustedcomputinggroup.org/wp-content/uploads/TCG-_Algorithm_Registry_r1p32_pub.pdf
 
