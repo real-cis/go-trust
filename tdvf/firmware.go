@@ -33,8 +33,11 @@ func (m *TDVFMeasurements) GetSecureBoot() SecureBootVars {
 }
 
 // MeasureFirmware parses a TDVF firmware file and extracts all measurements.
-func MeasureFirmware(filename string, qemuCompat bool) (Measurements, error) {
-	data, err := os.ReadFile(filename)
+//
+// filePath is the path to the firmware file
+// qemuCompat indicates whether to use QEMU compatible measurement for MRTD.
+func MeasureFirmware(filePath string, qemuCompat bool) (Measurements, error) {
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
