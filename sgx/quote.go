@@ -62,9 +62,9 @@ type ParsedQuote struct {
 	fmspcErr  error
 }
 
-func (q *ParsedQuote) IsSGX() bool { return q.Version == QuoteVersion3 }
+func (q *Quote) IsSGX() bool { return q.Version == QuoteVersion3 }
 
-func (q *ParsedQuote) IsTDX() bool { return q.Version == QuoteVersion4 }
+func (q *Quote) IsTDX() bool { return q.Version == QuoteVersion4 }
 
 type VerifiedQuote struct {
 	Quote       *Quote
