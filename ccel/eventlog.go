@@ -134,15 +134,6 @@ func (e *TcgPcClientRtmrEvent) GetEvent() []byte {
 	return e.Event
 }
 
-// Dump implements FormatedTcgEvent.
-func (e *TcgPcClientRtmrEvent) Dump() {
-	l := log.Default()
-	l.Println("--------------------Header Specification ID Event--------------------------")
-	l.Printf("RTMR              : %d\n", e.RtmrIndex)
-	l.Printf("Type              : 0x%X (%v) \n", uint32(e.EventType), e.EventType)
-	l.Printf("Digest: %s\n", hex.EncodeToString(e.Digest[:]))
-}
-
 type TcgEfiSpecIdEventAlgorithmSize struct {
 	AlgorithmId uint16
 	DigestSize  uint16

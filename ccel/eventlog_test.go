@@ -32,47 +32,39 @@ func TestEventLog(t *testing.T) {
 	e := el.Parse()
 	assert.Nil(t, e)
 
-	for _, fel := range el.EventLog() {
-		log.Printf("RTMR: %d, Event Type: %v\n", fel.GetRtmrIndex(), fel.GetEventType())
-		log.Printf("Digests:\n")
-		for _, digest := range fel.GetDigests() {
-			log.Printf(" %s\n", hex.EncodeToString(digest.Hash))
+	summary := el.Summary()
+
+	for _, ev := range summary.Events {
+		efiVar := ""
+		if ev.EFIVariable != nil {
+			efiVar = *ev.EFIVariable
 		}
-		if fel.GetEventType() != tcg.EvEfiVariableDriverConfig {
+		log.Printf("RTMR: %d, Event Type: %v, EFI Variable: %q, Digest: %s\n",
+			ev.RTMRIndex, ev.EventType, efiVar, hex.EncodeToString(ev.Digest))
+
+		// Secureboot variable digests below are the DRIVER_CONFIG measurements
+		if ev.EFIVariable == nil || ev.EventType != tcg.EvEfiVariableDriverConfig.String() {
 			continue
 		}
-		uefiVar, err := uefi.NewUefiVariableDataFromBytes(fel.GetEvent())
-		if err != nil {
-			log.Printf("Failed to parse UEFI variable data: %v\n", err)
-			continue
-		}
-		switch uefiVar.Name.String() {
+		switch *ev.EFIVariable {
 		case "PK":
-			assert.Equal(t, EFIPKHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
+			assert.Equal(t, EFIPKHash, hex.EncodeToString(ev.Digest))
 		case "KEK":
-			assert.Equal(t, EFIKEKHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
+			assert.Equal(t, EFIKEKHash, hex.EncodeToString(ev.Digest))
 		case "db":
-			assert.Equal(t, EFIDbHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
+			assert.Equal(t, EFIDbHash, hex.EncodeToString(ev.Digest))
 		case "dbx":
-			assert.Equal(t, EFIDbxHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
+			assert.Equal(t, EFIDbxHash, hex.EncodeToString(ev.Digest))
 		case "SecureBoot":
-			assert.Equal(t, EFISecureBootHash, hex.EncodeToString(fel.GetDigests()[0].Hash))
-		}
-
-		log.Printf("EFI Variable: %s %s\n", uefiVar.Name.String(), uefiVar.GUID.String())
-	}
-
-	replayMap := el.Replay()
-	// iterate replayMap and print hex values
-	for index, algMap := range replayMap {
-		for alg, val := range algMap {
-			log.Printf("\nRTMR[%d][%s]: %s\n", index, alg.String(), hex.EncodeToString(val))
+			assert.Equal(t, EFISecureBootHash, hex.EncodeToString(ev.Digest))
 		}
 	}
 
-	rtmr0 := replayMap[0][tcg.AlgSHA384]
-	assert.Equal(t, expectedRTMR0, hex.EncodeToString(rtmr0))
+	for index, val := range summary.RTMRs {
+		log.Printf("RTMR[%d]: %s\n", index, hex.EncodeToString(val))
+	}
 
+	assert.Equal(t, expectedRTMR0, hex.EncodeToString(summary.RTMRs[0]))
 }
 
 func TestFilterByEventType(t *testing.T) {
