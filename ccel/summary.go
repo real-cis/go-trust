@@ -4,6 +4,8 @@
 package ccel
 
 import (
+	"encoding/json"
+
 	"gitlab.com/real-cis/cc/go-trust/pkg/tcg"
 	"gitlab.com/real-cis/cc/go-trust/pkg/uefi"
 )
@@ -64,8 +66,17 @@ func NewEventSummary(e FormattedTcgEvent) EventSummary {
 	return s
 }
 
+// returns the summary as JSON; best effort, empty on error.
+func (s *EventLogSummary) JSON() string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // returns the aggregate, display/export friendly view of the event log
-func (l *EventLogger) Summary() EventLogSummary {
+func (l *EventLogger) Summary() *EventLogSummary {
 	events := make([]EventSummary, 0, len(l.tcgEventLogs))
 	for _, e := range l.tcgEventLogs {
 		events = append(events, NewEventSummary(e))
@@ -78,7 +89,7 @@ func (l *EventLogger) Summary() EventLogSummary {
 		}
 	}
 
-	return EventLogSummary{
+	return &EventLogSummary{
 		Events: events,
 		RTMRs:  rtmrs,
 	}
