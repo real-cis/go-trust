@@ -234,3 +234,13 @@ AiEA4J0lrHoMs+Xo5o/sX6O9QWxHRAvZUGOdRQ7cvqRXaqI=
 	}
 	return cert
 }
+
+// returns the first CRL distribution point URL embedded in the pinned Root CA certificate.
+func intelSGXRootCACDP() string {
+	for _, dp := range intelSGXRootCA().CRLDistributionPoints {
+		if dp != "" {
+			return dp
+		}
+	}
+	return ""
+}
