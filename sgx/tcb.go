@@ -4,12 +4,13 @@
 package sgx
 
 import (
+	"encoding/json"
 	"log/slog"
 )
 
-type TCBInfoWrapper struct {
-	TCBInfo   TCBInfo `json:"tcbInfo"`
-	Signature string  `json:"signature"`
+type SignedTCBInfo struct {
+	TCBInfo   json.RawMessage `json:"tcbInfo"`
+	Signature string          `json:"signature"`
 }
 
 // TCB information from Intel PCS
@@ -43,8 +44,7 @@ type TCBComponent struct {
 	Type     string `json:"type,omitempty"`
 }
 
-// evaluateTCBLevel iterates through tcbInfo levels (newest first) and returns
-// the status and advisory IDs of the first level whose SVN requirements are all
+// iterate through tcbInfo levels and return the status and advisory IDs of the first level whose SVN requirements are
 // met by cpusvn/pcesvn.
 func (tcb *TCBInfo) evaluateTCBLevel(cpusvn [16]byte, pcesvn int) (string, []string) {
 	slog.Debug("TCB matching starting", "cpusvn", cpusvn[:], "pcesvn", pcesvn, "levels", len(tcb.TCBLevels))

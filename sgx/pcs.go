@@ -5,9 +5,9 @@ package sgx
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,6 +31,8 @@ type PCSClient struct {
 	httpClient *http.Client
 }
 
+// Creates a new PCSClient with the given base URL, API key, and timeout.
+// baseURL - PCCS service or Intel PCS API endpoint (https://api.trustedservices.intel.com)
 func NewPCSClient(baseURL string, apiKey string, timeout time.Duration) *PCSClient {
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -62,74 +64,50 @@ func (c *PCSClient) GetTDXTCBInfo(fmspc string) (*TCBInfo, error) {
 }
 
 func (c *PCSClient) fetchTCBInfo(url string) (*TCBInfo, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	header, body, err := c.fetch(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	if c.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
+	var wrapper SignedTCBInfo
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, fmt.Errorf("failed to decode TCB info response: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tcbInfoWrapper TCBInfoWrapper
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	// Signature roots up to the pinned Intel SGX Root CA via the issuer chain.
+	issuerChain := header.Get("Tcb-Info-Issuer-Chain")
+	if issuerChain == "" {
+		slog.Warn("Tcb-Info-Issuer-Chain header absent; skipping TCB info signature verification")
+	} else {
+		if err := VerifyTCBInfoSignature(wrapper.TCBInfo, wrapper.Signature, issuerChain); err != nil {
+			return nil, fmt.Errorf("TCB info signature verification failed: %w", err)
+		}
 	}
 
-	if err := json.Unmarshal(body, &tcbInfoWrapper); err != nil {
+	var tcbInfo TCBInfo
+	if err := json.Unmarshal(wrapper.TCBInfo, &tcbInfo); err != nil {
 		return nil, fmt.Errorf("failed to decode TCB info: %w", err)
 	}
 
-	return &tcbInfoWrapper.TCBInfo, nil
+	return &tcbInfo, nil
 }
 
 func (c *PCSClient) GetRootCACRL() ([]byte, error) {
+	// /rootcacrl is PCCS-only, not for Intel PCS, so fall back to the CRL
+	// distribution point published in the pinned root cert (raw DER).
 	u := fmt.Sprintf("%s/sgx/certification/v4/rootcacrl", c.BaseURL)
-
-	req, err := http.NewRequest("GET", u, nil)
+	_, crl, err := c.fetch(u)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		cdp := intelSGXRootCACDP()
+		if cdp == "" {
+			return nil, fmt.Errorf("rootcacrl endpoint failed and no CDP in root cert: %w", err)
+		}
+		slog.Debug("rootcacrl unavailable, using root CA CDP", "cdp", cdp, "err", err)
+		if _, crl, err = c.fetch(cdp); err != nil {
+			return nil, fmt.Errorf("failed to fetch root CA CRL from CDP %s: %w", cdp, err)
+		}
 	}
-
-	if c.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	crl, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CRL: %w", err)
-	}
-
-	decoded := make([]byte, hex.DecodedLen(len(crl)))
-	n, err := hex.Decode(decoded, bytes.TrimSpace(crl))
-	if err != nil {
-		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
-	}
-	slog.Debug("decoded root CA CRL", "size", n)
-	return decoded[:n], nil
+	return decodeCRL(crl)
 }
 
 func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
@@ -138,9 +116,17 @@ func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
 		u = fmt.Sprintf("%s?ca=%s", u, url.QueryEscape(ca))
 	}
 
+	_, crl, err := c.fetch(u)
+	if err != nil {
+		return nil, err
+	}
+	return decodeCRL(crl)
+}
+
+func (c *PCSClient) fetch(u string) (http.Header, []byte, error) {
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	if c.APIKey != "" {
@@ -149,95 +135,46 @@ func (c *PCSClient) GetPCKCRL(ca string) ([]byte, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
 	}
+	return resp.Header, body, nil
+}
 
-	crl, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CRL: %w", err)
+// decodeCRL normalizes a CRL response to raw DER, accepting PEM (Intel pckcrl),
+// hex (PCCS), or raw DER (Intel root CDP).
+func decodeCRL(b []byte) ([]byte, error) {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return nil, fmt.Errorf("empty CRL response")
 	}
-
-	decoded := make([]byte, hex.DecodedLen(len(crl)))
-	n, err := hex.Decode(decoded, bytes.TrimSpace(crl))
-	if err != nil {
-		return nil, fmt.Errorf("failed to hex-decode CRL: %w", err)
+	if block, _ := pem.Decode(b); block != nil {
+		return block.Bytes, nil
 	}
-	slog.Debug("decoded PCK CRL", "size", n)
-	return decoded[:n], nil
+	if decoded, err := hex.DecodeString(string(b)); err == nil {
+		return decoded, nil
+	}
+	return b, nil // already raw DER
 }
 
 // retrieves the Quoting Enclave identity
 func (c *PCSClient) GetQEIdentity() ([]byte, error) {
 	u := fmt.Sprintf("%s/sgx/certification/v4/qe/identity", c.BaseURL)
-
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	if c.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	identity, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read QE identity: %w", err)
-	}
-
-	return identity, nil
+	_, body, err := c.fetch(u)
+	return body, err
 }
 
 // GetQVEIdentity retrieves the Quote Verification Enclave identity
 func (c *PCSClient) GetQVEIdentity() ([]byte, error) {
 	u := fmt.Sprintf("%s/sgx/certification/v4/qve/identity", c.BaseURL)
-
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	if c.APIKey != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.APIKey)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	identity, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read QVE identity: %w", err)
-	}
-
-	return identity, nil
-}
-
-type CertificateChain struct {
-	RootCA         *x509.Certificate
-	IntermediateCA *x509.Certificate
-	PCKCert        *x509.Certificate
+	_, body, err := c.fetch(u)
+	return body, err
 }

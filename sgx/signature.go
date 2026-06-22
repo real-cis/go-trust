@@ -8,9 +8,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/url"
+	"time"
 )
 
 // returns the canonical byte sequence that is covered by the quote
@@ -37,22 +42,7 @@ func (q *ParsedQuote) VerifySignature() error {
 	signed := q.SignedBytes()
 	slog.Debug("signed data", "length", len(signed))
 
-	hash := sha256.Sum256(signed)
-	slog.Debug("data hash", "prefix", hash[:8])
-
-	if len(q.Signature) < 64 {
-		return fmt.Errorf("signature data too short: %d bytes (expected 64)", len(q.Signature))
-	}
-
-	r := new(big.Int).SetBytes(q.Signature[:32])
-	s := new(big.Int).SetBytes(q.Signature[32:64])
-
-	if !ecdsa.Verify(pubKey, hash[:], r, s) {
-		return fmt.Errorf("ECDSA signature verification failed - signature does not match data hash")
-	}
-	slog.Debug("ECDSA signature verified")
-
-	return nil
+	return verifyECDSAP256(pubKey, signed, q.Signature[:64])
 }
 
 // Verify that QE Report's ReportData[0:32] == SHA-256(AttestationKey || QEAuthData).
@@ -128,4 +118,67 @@ func serializeReportBody(body *ReportBody) []byte {
 	result = append(result, body.Reserved4[:]...)
 	result = append(result, body.ReportData[:]...)
 	return result
+}
+
+// verifies the ECDSA-P256 signature over the raw tcbInfo JSON bytes returned by Intel PCS.
+//
+// Intel signs the serialised tcbInfo JSON value with an ECDSA-P256 key whose certificate PEM is delivered in
+// the Tcb-Info-Issuer-Chain response header. That certificate chains up to the embedded Intel SGX Root CA.
+func VerifyTCBInfoSignature(rawTCBInfoJSON []byte, hexSig string, issuerChainHeader string) error {
+	// 1. URL-decode and parse the TCB Signing certificate (always first in chain).
+	chainPEM, err := url.PathUnescape(issuerChainHeader)
+	if err != nil {
+		return fmt.Errorf("failed to URL-decode TCB issuer chain header: %w", err)
+	}
+	block, _ := pem.Decode([]byte(chainPEM))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return fmt.Errorf("no TCB signing certificate found in issuer chain header")
+	}
+	signingCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse TCB signing certificate: %w", err)
+	}
+	slog.Debug("parsed TCB signing cert", "subject", signingCert.Subject.CommonName,
+		"expires", signingCert.NotAfter.Format(time.RFC3339))
+
+	// 2. Verify the signing cert chains up to the pinned Intel SGX Root CA.
+	// CurrentTime zero value defaults to time.Now().
+	rootPool := x509.NewCertPool()
+	rootPool.AddCert(intelSGXRootCA())
+	if _, err := signingCert.Verify(x509.VerifyOptions{
+		Roots:     rootPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}); err != nil {
+		return fmt.Errorf("TCB signing certificate chain verification failed: %w", err)
+	}
+	slog.Debug("TCB signing cert chain verified against Intel SGX Root CA")
+
+	// 3. Hex-decode the signature (raw r ‖ s, 64 bytes), hash the payload, and verify.
+	sigBytes, err := hex.DecodeString(hexSig)
+	if err != nil {
+		return fmt.Errorf("failed to hex-decode TCB info signature: %w", err)
+	}
+	ecPub, ok := signingCert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("TCB signing certificate does not contain an ECDSA public key")
+	}
+	if err := verifyECDSAP256(ecPub, rawTCBInfoJSON, sigBytes); err != nil {
+		return fmt.Errorf("TCB info signature: %w", err)
+	}
+	slog.Debug("TCB info signature verified")
+	return nil
+}
+
+// verifyECDSAP256 hashes data with SHA-256 and checks the raw 64-byte ECDSA-P256
+// signature (r || s) against pub.
+func verifyECDSAP256(pub *ecdsa.PublicKey, data, rawSig []byte) error {
+	if len(rawSig) < 64 {
+		return fmt.Errorf("signature too short: %d bytes (expected 64)", len(rawSig))
+	}
+	hash := sha256.Sum256(data)
+	r, s := new(big.Int).SetBytes(rawSig[:32]), new(big.Int).SetBytes(rawSig[32:64])
+	if !ecdsa.Verify(pub, hash[:], r, s) {
+		return fmt.Errorf("ECDSA-P256 signature verification failed")
+	}
+	return nil
 }

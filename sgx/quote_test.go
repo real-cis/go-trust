@@ -14,16 +14,14 @@ type quoteTestCase struct {
 	name string
 	file string
 
-	// Static values – embedded in the quote binary, stable across Intel TCB updates.
+	// Static quote values, stable across TCB updates.
 	wantFMSPC     string
 	wantMRENCLAVE string
 	wantMRSIGNER  string
 	wantCPUSVN    string
 	wantPCESVN    uint16
 
-	// wantTCBStatus is the TCB evaluation result observed when calling Intel PCS
-	// as on 2026-02-20.  If Intel issues a new TCB update that changes this value,
-	// update the field below.
+	// wantTCBStatus is the TCB status from Intel PCS as of 2026-02-20; update on TCB changes.
 	wantTCBStatus string
 }
 
@@ -150,7 +148,7 @@ func TestParseQuote(t *testing.T) {
 func TestVerify_Integration(t *testing.T) {
 
 	client := NewPCSClient(
-		"https://pccs.svc.bit-heat.com",
+		"https://api.trustedservices.intel.com",
 		"",
 		10*time.Second,
 	)

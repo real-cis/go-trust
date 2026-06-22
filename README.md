@@ -19,6 +19,7 @@ Go library for Intel TDX trust and attestation, with packages to parse eventlog,
 import (
     "gitlab.com/real-cis/cc/go-trust/ccel"
     "gitlab.com/real-cis/cc/go-trust/tdvf"
+    "gitlab.com/real-cis/cc/go-trust/sgx"
     "gitlab.com/real-cis/cc/go-trust/tdx"
 )
 ```
