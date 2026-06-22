@@ -69,9 +69,6 @@ func (q *ParsedQuote) VerifyQEReportData() error {
 }
 
 func rawBytesToECDSAPublicKey(rawKey []byte) (*ecdsa.PublicKey, error) {
-	if len(rawKey) != 64 {
-		return nil, fmt.Errorf("invalid key length: %d (expected 64)", len(rawKey))
-	}
 	return &ecdsa.PublicKey{
 		Curve: elliptic.P256(),
 		X:     new(big.Int).SetBytes(rawKey[:32]),
