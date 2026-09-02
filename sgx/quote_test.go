@@ -65,11 +65,11 @@ func init() {
 	quoteTestCases = []quoteTestCase{
 		{
 			name:          "emerald-rapids",
-			file:          "testdata/quote.emerald-rapids.20260220.bin",
+			file:          "testdata/quote.emerald-rapids.20260831.bin",
 			wantFMSPC:     "B0C06F000000",
-			wantMRENCLAVE: "a2d1e398461c7d5876ecf8bf1cfd0c51af718d3d844eb1ed70df5b5571903d48",
-			wantMRSIGNER:  "66d07b620a0ddd1f53f55b60fc22294481d572cfb8a709f570b6a82ae26b197c",
-			wantCPUSVN:    "0303191b04ff00060000000000000000",
+			wantMRENCLAVE: "7463254d75197ee9890417b1b8bd7e9d1f7766d0fb197851e270d1efd382d629",
+			wantMRSIGNER:  "a88ae9c72ee95c3c496e6b4e26fbf9d3969660a2a5ab42eefc0dd281c410324a",
+			wantCPUSVN:    "0404191b04ff00060000000000000000",
 			wantPCESVN:    16,
 			wantTCBStatus: "UpToDate",
 		},
