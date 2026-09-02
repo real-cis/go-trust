@@ -17,6 +17,10 @@ var (
 	sgxExtensionOID = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1}
 	// FMSPC OID: 1.2.840.113741.1.13.1.4
 	fmspcOID = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1, 4}
+	// OIDs inside the SGX extension carrying the platform's own TCB SVNs.
+	tcbOID    = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1, 2}
+	pcesvnOID = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1, 2, 17}
+	cpusvnOID = asn1.ObjectIdentifier{1, 2, 840, 113741, 1, 13, 1, 2, 18}
 )
 
 // CertChain parses and returns the PCK certificate chain embedded in the quote's
@@ -51,27 +55,11 @@ func (q *ParsedQuote) extractFMSPC() (string, error) {
 		return "", err
 	}
 
-	for _, ext := range pckCert.Extensions {
-		if !ext.Id.Equal(sgxExtensionOID) {
-			continue
-		}
-		var sgxExts []struct {
-			OID   asn1.ObjectIdentifier
-			Value asn1.RawValue
-		}
-		if _, err := asn1.Unmarshal(ext.Value, &sgxExts); err != nil {
-			return "", fmt.Errorf("failed to parse SGX extensions: %w", err)
-		}
-		for _, sgxExt := range sgxExts {
-			if sgxExt.OID.Equal(fmspcOID) {
-				if len(sgxExt.Value.Bytes) != 6 {
-					return "", fmt.Errorf("invalid FMSPC length: %d (expected 6)", len(sgxExt.Value.Bytes))
-				}
-				return fmt.Sprintf("%X", sgxExt.Value.Bytes), nil
-			}
-		}
+	ext, err := ParseSGXExtension(pckCert)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("FMSPC not found in PCK certificate")
+	return ext.FMSPC, nil
 }
 
 // parseCertChain decodes PEM (or raw DER) certificate data into an ordered
@@ -243,4 +231,98 @@ func intelSGXRootCACDP() string {
 		}
 	}
 	return ""
+}
+
+// SGXExtension holds the platform SVNs encoded in a PCK certificate's SGX
+// extension.
+type SGXExtension struct {
+	FMSPC         string
+	PCESVN        int
+	CPUSVN        []byte
+	TCBComponents [16]int
+}
+
+type sgxExtEntry struct {
+	OID   asn1.ObjectIdentifier
+	Value asn1.RawValue
+}
+
+// ParseSGXExtension decodes the Intel SGX extension of a PCK certificate.
+func ParseSGXExtension(cert *x509.Certificate) (*SGXExtension, error) {
+	for _, ext := range cert.Extensions {
+		if !ext.Id.Equal(sgxExtensionOID) {
+			continue
+		}
+		var entries []sgxExtEntry
+		if _, err := asn1.Unmarshal(ext.Value, &entries); err != nil {
+			return nil, fmt.Errorf("failed to parse SGX extensions: %w", err)
+		}
+		return parseSGXEntries(entries)
+	}
+	return nil, fmt.Errorf("SGX extension not found in certificate")
+}
+
+func parseSGXEntries(entries []sgxExtEntry) (*SGXExtension, error) {
+	out := &SGXExtension{}
+	seenTCB := false
+	for _, e := range entries {
+		switch {
+		case e.OID.Equal(fmspcOID):
+			if len(e.Value.Bytes) != 6 {
+				return nil, fmt.Errorf("invalid FMSPC length: %d (expected 6)", len(e.Value.Bytes))
+			}
+			out.FMSPC = fmt.Sprintf("%X", e.Value.Bytes)
+		case e.OID.Equal(tcbOID):
+			if err := parseTCBEntries(e.Value.FullBytes, out); err != nil {
+				return nil, err
+			}
+			seenTCB = true
+		}
+	}
+	if out.FMSPC == "" {
+		return nil, fmt.Errorf("FMSPC not found in SGX extension")
+	}
+	if !seenTCB {
+		return nil, fmt.Errorf("TCB block not found in SGX extension")
+	}
+	return out, nil
+}
+
+// The TCB block nests one entry per component
+func parseTCBEntries(der []byte, out *SGXExtension) error {
+	var entries []sgxExtEntry
+	if _, err := asn1.Unmarshal(der, &entries); err != nil {
+		return fmt.Errorf("failed to parse SGX TCB block: %w", err)
+	}
+	for _, e := range entries {
+		switch {
+		case e.OID.Equal(pcesvnOID):
+			n, err := asn1Int(e.Value)
+			if err != nil {
+				return fmt.Errorf("PCESVN: %w", err)
+			}
+			out.PCESVN = n
+		case e.OID.Equal(cpusvnOID):
+			out.CPUSVN = append([]byte(nil), e.Value.Bytes...)
+		case len(e.OID) == len(tcbOID)+1 && e.OID[:len(tcbOID)].Equal(tcbOID):
+			idx := e.OID[len(tcbOID)]
+			if idx < 1 || idx > 16 {
+				continue
+			}
+			n, err := asn1Int(e.Value)
+			if err != nil {
+				return fmt.Errorf("tcbComp%02d: %w", idx, err)
+			}
+			out.TCBComponents[idx-1] = n
+		}
+	}
+	return nil
+}
+
+func asn1Int(v asn1.RawValue) (int, error) {
+	var n int
+	if _, err := asn1.Unmarshal(v.FullBytes, &n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

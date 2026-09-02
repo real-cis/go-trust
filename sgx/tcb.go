@@ -5,6 +5,7 @@ package sgx
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 )
 
@@ -15,6 +16,7 @@ type SignedTCBInfo struct {
 
 // TCB information from Intel PCS
 type TCBInfo struct {
+	ID         string     `json:"id"`
 	Version    int        `json:"version"`
 	IssueDate  string     `json:"issueDate"`
 	NextUpdate string     `json:"nextUpdate"`
@@ -23,6 +25,26 @@ type TCBInfo struct {
 	TCBType    int        `json:"tcbType"`
 	TCBLevels  []TCBLevel `json:"tcbLevels"`
 	TcbEvalNum int        `json:"tcbEvaluationDataNumber"`
+	// Present only in TDX TCB Info; empty for SGX.
+	TDXModuleIdentities []TDXModuleIdentity `json:"tdxModuleIdentities"`
+}
+
+// TDXModuleIdentity describes one TDX module major version and the ISVSVNs
+// Intel considers acceptable for it.
+type TDXModuleIdentity struct {
+	ID        string              `json:"id"`
+	TCBLevels []TDXModuleTCBLevel `json:"tcbLevels"`
+}
+
+type TDXModuleTCBLevel struct {
+	TCB         TDXModuleTCB `json:"tcb"`
+	TCBDate     string       `json:"tcbDate"`
+	TCBStatus   string       `json:"tcbStatus"`
+	AdvisoryIDs []string     `json:"advisoryIDs"`
+}
+
+type TDXModuleTCB struct {
+	ISVSVN int `json:"isvsvn"`
 }
 
 type TCBLevel struct {
@@ -107,4 +129,84 @@ func getSGXComponentName(index int) string {
 		return componentNames[index]
 	}
 	return "Unknown"
+}
+
+// Collateral flavours Intel serves for the same FMSPC
+const (
+	UpdateStandard = "standard"
+	UpdateEarly    = "early"
+)
+
+// Platform carries the SVNs a platform reports
+type Platform struct {
+	TCBComponents [16]int
+	PCESVN        int
+	TEETCBSVN     []byte
+}
+
+// MatchLevel walks tcbLevels newest-first and returns the first level whose SVN
+// requirements the platform meets, or nil if it meets none.
+func (tcb *TCBInfo) MatchLevel(p Platform) *TCBLevel {
+	isTDX := tcb.ID == "TDX"
+	for i := range tcb.TCBLevels {
+		lvl := &tcb.TCBLevels[i]
+		if !meetsSGX(lvl, p) {
+			continue
+		}
+		if isTDX && p.TEETCBSVN != nil && !meetsTDX(lvl, p.TEETCBSVN) {
+			continue
+		}
+		return lvl
+	}
+	return nil
+}
+
+func meetsSGX(lvl *TCBLevel, p Platform) bool {
+	for i, c := range lvl.TCB.SGXTCBComponents {
+		if i >= len(p.TCBComponents) {
+			break
+		}
+		if c.SVN > p.TCBComponents[i] {
+			return false
+		}
+	}
+	return lvl.TCB.PCESVN <= p.PCESVN
+}
+
+func meetsTDX(lvl *TCBLevel, teeTCBSVN []byte) bool {
+	start := 0
+	if len(teeTCBSVN) > 1 && teeTCBSVN[1] >= 1 {
+		start = 2
+	}
+	for i, c := range lvl.TCB.TDXTCBComponents {
+		if i < start || i >= len(teeTCBSVN) {
+			continue
+		}
+		if c.SVN > int(teeTCBSVN[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// MatchModule returns the tdxModuleIdentities entry for the platform's TDX
+// module major version, and the newest level its ISVSVN satisfies.
+func (tcb *TCBInfo) MatchModule(teeTCBSVN []byte) (string, *TDXModuleIdentity, *TDXModuleTCBLevel) {
+	if len(teeTCBSVN) < 2 || teeTCBSVN[1] < 1 {
+		return "", nil, nil
+	}
+	id := fmt.Sprintf("TDX_%02d", teeTCBSVN[1])
+	for i := range tcb.TDXModuleIdentities {
+		ident := &tcb.TDXModuleIdentities[i]
+		if ident.ID != id {
+			continue
+		}
+		for j := range ident.TCBLevels {
+			if ident.TCBLevels[j].TCB.ISVSVN <= int(teeTCBSVN[0]) {
+				return id, ident, &ident.TCBLevels[j]
+			}
+		}
+		return id, ident, nil
+	}
+	return id, nil, nil
 }

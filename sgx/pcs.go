@@ -5,6 +5,7 @@ package sgx
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -13,6 +14,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -53,14 +56,12 @@ func (c *PCSClient) HTTPClient() *http.Client {
 
 // retrieves SGX TCB information for a given FMSPC
 func (c *PCSClient) GetTCBInfo(fmspc string) (*TCBInfo, error) {
-	u := fmt.Sprintf("%s/sgx/certification/v4/tcb?fmspc=%s", c.BaseURL, url.QueryEscape(fmspc))
-	return c.fetchTCBInfo(u)
+	return c.GetTCBInfoFor("sgx", fmspc, "")
 }
 
 // retrieves TDX TCB information for a given FMSPC
 func (c *PCSClient) GetTDXTCBInfo(fmspc string) (*TCBInfo, error) {
-	u := fmt.Sprintf("%s/tdx/certification/v4/tcb?fmspc=%s", c.BaseURL, url.QueryEscape(fmspc))
-	return c.fetchTCBInfo(u)
+	return c.GetTCBInfoFor("tdx", fmspc, "")
 }
 
 func (c *PCSClient) fetchTCBInfo(url string) (*TCBInfo, error) {
@@ -177,4 +178,95 @@ func (c *PCSClient) GetQVEIdentity() ([]byte, error) {
 	u := fmt.Sprintf("%s/sgx/certification/v4/qve/identity", c.BaseURL)
 	_, body, err := c.fetch(u)
 	return body, err
+}
+
+// TCBEvalNumbers lists the TCB Recovery events Intel currently publishes
+// collateral for
+type TCBEvalNumbers struct {
+	ID          string         `json:"id"`
+	Version     int            `json:"version"`
+	IssueDate   string         `json:"issueDate"`
+	NextUpdate  string         `json:"nextUpdate"`
+	EvalNumbers []TCBEvalEntry `json:"tcbEvalNumbers"`
+}
+
+type TCBEvalEntry struct {
+	Number            int    `json:"tcbEvaluationDataNumber"`
+	RecoveryEventDate string `json:"tcbRecoveryEventDate"`
+	TCBDate           string `json:"tcbDate"`
+}
+
+type signedEvalNumbers struct {
+	EvalNumbers TCBEvalNumbers `json:"tcbEvaluationDataNumbers"`
+	Signature   string         `json:"signature"`
+}
+
+// GetTCBInfoFor retrieves TCB Info for a TEE ("sgx" or "tdx")
+func (c *PCSClient) GetTCBInfoFor(tee, fmspc, update string) (*TCBInfo, error) {
+	q := url.Values{"fmspc": {fmspc}}
+	if update != "" {
+		q.Set("update", update)
+	}
+	return c.fetchTCBInfo(c.tcbURL(tee, q))
+}
+
+// GetTCBInfoAt retrieves TCB Info for a specific TCB evaluation data number.
+func (c *PCSClient) GetTCBInfoAt(tee, fmspc string, evalNum int) (*TCBInfo, error) {
+	q := url.Values{"fmspc": {fmspc}, "tcbEvaluationDataNumber": {strconv.Itoa(evalNum)}}
+	tcb, err := c.fetchTCBInfo(c.tcbURL(tee, q))
+	if err != nil {
+		return nil, err
+	}
+
+	if tcb.TcbEvalNum != evalNum {
+		return nil, fmt.Errorf("%s ignored tcbEvaluationDataNumber: asked for %d, got %d",
+			c.BaseURL, evalNum, tcb.TcbEvalNum)
+	}
+	return tcb, nil
+}
+
+// GetTCBEvaluationDataNumbers lists the published TCB Recovery events for a TEE.
+func (c *PCSClient) GetTCBEvaluationDataNumbers(tee string) (*TCBEvalNumbers, error) {
+	u := fmt.Sprintf("%s/%s/certification/v4/tcbevaluationdatanumbers", c.BaseURL, tee)
+	_, body, err := c.fetch(u)
+	if err != nil {
+		return nil, err
+	}
+	var wrapper signedEvalNumbers
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, fmt.Errorf("failed to decode TCB evaluation data numbers: %w", err)
+	}
+	return &wrapper.EvalNumbers, nil
+}
+
+// GetPCKCert retrieves the PCK certificate for a platform from a PCCS
+func (c *PCSClient) GetPCKCert(qeid, cpusvn, pcesvn, pceid, encPPID string) (*x509.Certificate, error) {
+	q := url.Values{
+		"qeid":           {qeid},
+		"cpusvn":         {cpusvn},
+		"pcesvn":         {pcesvn},
+		"pceid":          {pceid},
+		"encrypted_ppid": {encPPID},
+	}
+	u := fmt.Sprintf("%s/sgx/certification/v4/pckcert?%s", c.BaseURL, q.Encode())
+	_, body, err := c.fetch(u)
+	if err != nil {
+		return nil, err
+	}
+	// Intel PCS percent-encodes the PEM; a PCCS may return it verbatim.
+	text := string(body)
+	if !strings.Contains(text, "BEGIN CERTIFICATE") {
+		if decoded, err := url.PathUnescape(text); err == nil {
+			text = decoded
+		}
+	}
+	block, _ := pem.Decode([]byte(text))
+	if block == nil {
+		return nil, fmt.Errorf("PCCS did not return a PEM certificate")
+	}
+	return x509.ParseCertificate(block.Bytes)
+}
+
+func (c *PCSClient) tcbURL(tee string, q url.Values) string {
+	return fmt.Sprintf("%s/%s/certification/v4/tcb?%s", c.BaseURL, tee, q.Encode())
 }
