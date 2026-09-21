@@ -9,11 +9,13 @@ import (
 	"github.com/google/go-tdx-guest/abi"
 	"github.com/google/go-tdx-guest/client"
 	"github.com/google/go-tdx-guest/proto/tdx"
+	"github.com/google/go-tdx-guest/verify"
 )
 
 type QuoteProvider interface {
 	Generate(reportData [64]byte) ([]byte, error)
 	Parse(rawQuote []byte) (*tdx.QuoteV4, error)
+	Verify(rawQuote []byte) error
 }
 
 type DefaultQuoteProvider struct{}
@@ -44,4 +46,11 @@ func (p *DefaultQuoteProvider) Parse(rawQuote []byte) (*tdx.QuoteV4, error) {
 		return nil, fmt.Errorf("failed to cast parsed quote to *tdx.QuoteV4")
 	}
 	return parsedBytes, nil
+}
+
+func (p *DefaultQuoteProvider) Verify(rawQuote []byte) error {
+	opt := verify.DefaultOptions()
+	opt.GetCollateral = true
+	opt.CheckRevocations = true
+	return verify.RawTdxQuote(rawQuote, opt)
 }
